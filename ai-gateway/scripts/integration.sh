@@ -171,7 +171,7 @@ note "HOME → $AGENT_HOME (present: ${PRESENT[*]} · absent: ${ABSENT[*]})"
 
 # ── the deployment comes up once ───────────────────────────────────────────
 step "deploy: one gateway service, one continuous simulator"
-TEMPLATE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../simulator" && pwd)/test-config.yaml"
+TEMPLATE="$REPO_ROOT/ai-gateway/simulator/test-config.yaml"
 python3 - "$CONFIG" "$TEMPLATE" <<'PY'
 import sys, pathlib
 # codex enabled so the apply path has a subject.

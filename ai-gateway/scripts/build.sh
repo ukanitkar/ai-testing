@@ -3,8 +3,10 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 note "build + test + clippy (workspace)"
+note "repo: $REPO_ROOT"
 hr
 
+cd "$REPO_ROOT"
 cargo build  --workspace
 cargo test   --workspace
 cargo clippy --workspace --all-targets

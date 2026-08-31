@@ -126,7 +126,7 @@ function Get-LogMatchCount {
 }
 
 # ── layout ────────────────────────────────────────────────────────────────────
-$RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+. "$PSScriptRoot\common.ps1"   # provides $RepoRoot, $Gw, $Sim, $Docs
 $Stamp    = Get-Date -Format 'yyyyMMdd-HHmmss'
 $RunDir   = Join-Path $RepoRoot "target\zax-it\$Stamp"
 $HomeDir  = Join-Path $RunDir 'home'          # the gateway home: control files
@@ -139,8 +139,6 @@ $StatusFile = Join-Path $HomeDir '.status.zip'
 
 New-Item -ItemType Directory -Force -Path $HomeDir | Out-Null
 
-$Sim = Join-Path $RepoRoot 'target\debug\zax-sim.exe'
-$Gw  = Join-Path $RepoRoot 'target\debug\zscaler-ai-gateway.exe'
 foreach ($bin in @($Sim, $Gw)) {
     if (-not (Test-Path $bin)) {
         Write-Error "missing $bin — run: cargo build -p ai-gateway-simulator -p ai-gateway-service"

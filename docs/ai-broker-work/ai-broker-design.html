@@ -1,0 +1,1421 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Broker — Design Record</title>
+<style>
+  /* ── Tokens ─────────────────────────────────────────────────────────────
+     Neutrals carry a cyan-slate bias (the subject is wire traffic, not paper).
+     Hue is semantic: teal = broker / MCP leg, gold = LLM leg + caution,
+     rust = open issue, green = verified. Components read tokens only, so the
+     theme overrides below flip everything including the inline SVG.        */
+  :root{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0;
+    --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;   --gold-soft:#f9efd6;
+    --crit:#a63a2e;   --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;     --ok-soft:#e0f2e8;
+    --slate:#3f525c;  --slate-soft:#e6eef0;
+    --code-bg:#eef4f5;
+  }
+  /* Legacy aliases: the diagrams address colour through these names. */
+  :root{
+    --fg:var(--ink);
+    --green:var(--ok);       --green-soft:var(--ok-soft);
+    --red:var(--crit);       --red-soft:var(--crit-soft);
+    --amber:var(--gold);     --amber-soft:var(--gold-soft);
+    --violet:var(--slate);   --violet-soft:var(--slate-soft);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+      --line:#1d272c; --panel:#101a1e; --panel2:#16222a;
+      --box:#131f24; --box-line:#33454c;
+      --accent:#3fc6da; --accent-soft:#0c2a31;
+      --gold:#dfaf54;   --gold-soft:#2a2212;
+      --crit:#ef8275;   --crit-soft:#2d1a17;
+      --ok:#4ec98c;     --ok-soft:#0e2a20;
+      --slate:#8fa6b0;  --slate-soft:#16222a;
+      --code-bg:#101a1e;
+    }
+  }
+  /* The viewer's toggle stamps data-theme on :root and must win both ways. */
+  :root[data-theme="dark"]{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a;
+    --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31;
+    --gold:#dfaf54;   --gold-soft:#2a2212;
+    --crit:#ef8275;   --crit-soft:#2d1a17;
+    --ok:#4ec98c;     --ok-soft:#0e2a20;
+    --slate:#8fa6b0;  --slate-soft:#16222a;
+    --code-bg:#101a1e;
+  }
+  :root[data-theme="light"]{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0;
+    --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;   --gold-soft:#f9efd6;
+    --crit:#a63a2e;   --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;     --ok-soft:#e0f2e8;
+    --slate:#3f525c;  --slate-soft:#e6eef0;
+    --code-bg:#eef4f5;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:960px; margin:0 auto; padding:64px 28px 128px; counter-reset:section}
+  p,ul,ol{max-width:68ch}
+
+  /* ── Masthead ── */
+  header.doc{border-bottom:2px solid var(--ink); padding-bottom:26px}
+  .kicker{
+    font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 16px;
+  }
+  h1{
+    font:700 2.05rem/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:-.035em; margin:0 0 14px; text-wrap:balance; max-width:22ch;
+  }
+  .sub{color:var(--muted); font-size:1.04rem; margin:0 0 22px; max-width:62ch}
+  .meta{display:flex; flex-wrap:wrap; gap:6px; max-width:none}
+  .chip{
+    font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    padding:5px 9px; border-radius:4px; background:var(--panel2);
+    color:var(--muted); white-space:nowrap;
+  }
+  .chip.ok{background:var(--ok-soft); color:var(--ok)}
+  .chip.warn{background:var(--gold-soft); color:var(--gold)}
+  .byline{
+    display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 10px;
+    margin:0 0 20px; max-width:none;
+    font:600 12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.02em; color:var(--muted);
+  }
+  .byline .lbl{
+    font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);
+  }
+  .byline .val{color:var(--ink)}
+  .byline .sep{color:var(--faint)}
+
+  /* ── Headings ── */
+  h2{
+    font:700 1.32rem/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:-.02em; margin:64px 0 4px; padding-top:18px;
+    border-top:1px solid var(--line); text-wrap:balance;
+    counter-increment:section;
+  }
+  h2::before{content:counter(section) " · "; color:var(--accent); font-weight:700}
+  h3{
+    font:600 .95rem/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    letter-spacing:.01em; margin:34px 0 6px; color:var(--accent);
+  }
+  h2 + p, h3 + p{margin-top:10px}
+
+  p{margin:14px 0}
+  ul,ol{margin:14px 0; padding-left:20px}
+  li{margin:7px 0}
+  li::marker{color:var(--faint)}
+  strong{font-weight:650}
+  a{color:var(--accent); text-underline-offset:2px}
+  a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:3px}
+
+  code{
+    font:500 .87em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:var(--code-bg); padding:.12em .38em; border-radius:3px;
+  }
+  pre{
+    background:var(--code-bg); border:1px solid var(--line); border-radius:6px;
+    padding:15px 17px; overflow-x:auto; max-width:none;
+    font:500 12.8px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  pre code{background:none; padding:0}
+
+  /* ── Tables ── */
+  .tablewrap{overflow-x:auto; margin:22px 0; border:1px solid var(--line); border-radius:6px}
+  table{border-collapse:collapse; width:100%; font-size:.885rem; min-width:600px; font-variant-numeric:tabular-nums}
+  th,td{text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{
+    background:var(--panel); font:600 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
+  }
+  tbody tr:last-child td{border-bottom:none}
+  td:first-child{color:var(--ink)}
+
+  /* ── Callouts: tinted field, no accent rail ── */
+  .callout{background:var(--panel); border:1px solid var(--line); padding:16px 18px; border-radius:6px; margin:24px 0}
+  .callout.note{background:var(--accent-soft); border-color:transparent}
+  .callout.warn{background:var(--gold-soft); border-color:transparent}
+  .callout.open{background:var(--crit-soft); border-color:transparent}
+  .callout p,.callout ol,.callout ul{max-width:66ch}
+  .callout p:first-of-type{margin-top:0} .callout > :last-child{margin-bottom:0}
+  .callout .lbl{
+    display:block; margin-bottom:8px;
+    font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    text-transform:uppercase; letter-spacing:.11em; color:var(--muted);
+  }
+  .callout.note .lbl{color:var(--accent)}
+  .callout.warn .lbl{color:var(--gold)}
+  .callout.open .lbl{color:var(--crit)}
+
+  /* ── Figures ── */
+  figure{
+    margin:32px 0; border:1px solid var(--line); border-radius:6px;
+    background:var(--panel); padding:22px 18px 14px; overflow-x:auto;
+  }
+  figure svg{display:block; width:100%; height:auto; min-width:540px}
+  figcaption{
+    color:var(--muted); font-size:.815rem; line-height:1.55; margin-top:14px;
+    padding-top:12px; border-top:1px solid var(--line); max-width:none;
+  }
+  figcaption strong{
+    font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    text-transform:uppercase; letter-spacing:.09em; color:var(--ink);
+    display:inline-block; margin-right:6px;
+  }
+  svg text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  svg text.mono,svg tspan.mono,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  /* ── Contents ── */
+  nav.toc{background:var(--panel2); border-radius:6px; padding:20px 24px; margin:36px 0 8px}
+  nav.toc h4{
+    margin:0 0 12px; font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    text-transform:uppercase; letter-spacing:.11em; color:var(--muted);
+  }
+  nav.toc ol{
+    margin:0; padding-left:22px; columns:2; column-gap:36px; max-width:none;
+    font-size:.9rem;
+  }
+  nav.toc li{margin:5px 0; break-inside:avoid}
+  nav.toc a{text-decoration:none; color:var(--ink)}
+  nav.toc a:hover{color:var(--accent); text-decoration:underline}
+
+  footer.doc{
+    margin-top:72px; padding-top:22px; border-top:1px solid var(--line);
+    color:var(--faint); font-size:.8rem; line-height:1.7; max-width:78ch;
+  }
+
+  @media (max-width:640px){
+    .wrap{padding:36px 18px 88px}
+    h1{font-size:1.55rem}
+    h2{font-size:1.14rem; margin-top:48px}
+    nav.toc ol{columns:1}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation-duration:.01ms !important; transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="doc">
+  <p class="kicker">Design record · ai-protect</p>
+  <h1>AI Broker — Design Record</h1>
+  <p class="sub">Brokering AI coding agents' MCP and LLM traffic through the ZAX gateway, from an endpoint component shipped inside ai-protect, on managed <strong>Mac and Windows laptops</strong>. Beyond Claude: a per-agent adapter model covering fourteen agents, a multi-provider LLM path (reverse-proxy + CONNECT-MITM forward-proxy legs), and the identity/auth model both legs sit on. The SDK, proxy, bridge and adapters are portable Rust; the host-integration hooks are OS-specific — see <a href="#platforms">Platforms</a>.</p>
+  <p class="byline">
+    <span class="lbl">Author</span> <span class="val">Umesh Kanitkar</span>
+    <span class="sep">·</span>
+    <span class="lbl">Version</span> <span class="val">2.7</span>
+    <span class="sep">·</span>
+    <span class="lbl">Date</span> <span class="val">14 August 2026</span>
+  </p>
+  <div class="meta">
+    <span class="chip">repo ai-protect</span>
+    <span class="chip">branch feat/ai-broker-beyond-claude</span>
+    <span class="chip">ZSAI-6236</span>
+    <span class="chip ok">sdk + mon clippy-clean · mon tests green</span>
+    <span class="chip ok">14 agents · MCP for the enabled four</span>
+    <span class="chip warn">Mac + Windows · several host hooks mac-only today</span>
+    <span class="chip warn">forward-proxy e2e-unverified · daemon subscriber = scaffold</span>
+    <span class="chip ok">LLM leg verified e2e — real 200 through Optimus (ZCC off)</span>
+  </div>
+</header>
+
+<nav class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#ctx">Context and goal</a></li>
+    <li><a href="#place">Placement and build isolation</a></li>
+    <li><a href="#platforms">Platforms — Mac &amp; Windows</a></li>
+    <li><a href="#proc">Process model — one exe, several modes</a></li>
+    <li><a href="#agents">Agents &amp; the adapter model</a></li>
+    <li><a href="#per-agent">Per-agent integration</a></li>
+    <li><a href="#boot">Bootstrap sequence</a></li>
+    <li><a href="#mcp">The MCP leg</a></li>
+    <li><a href="#llm">The LLM leg — multi-provider</a></li>
+    <li><a href="#ident">Identity, auth &amp; credentials</a></li>
+    <li><a href="#backends">Two backends, two API surfaces</a></li>
+    <li><a href="#config">Config layering and file mutations</a></li>
+    <li><a href="#rails">Safety rails</a></li>
+    <li><a href="#verify">Live verification</a></li>
+    <li><a href="#daemon">Daemon integration</a></li>
+    <li><a href="#open">Open issues</a></li>
+    <li><a href="#recover">Recovery path</a></li>
+    <li><a href="#ledger">Decision ledger</a></li>
+    <li><a href="#history">Version history</a></li>
+    <li><a href="#sources">Sources &amp; verification</a></li>
+  </ol>
+</nav>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="ctx">Context and goal</h2>
+
+<p>The AI Broker makes an unmodified <strong>Claude Desktop</strong> route its outbound traffic through the ZAX gateway, so Zscaler can broker it. Two independent legs:</p>
+
+<ul>
+  <li><strong>MCP leg</strong> — tool calls to tenant MCP servers, discovered from the vector broker catalog rather than configured locally.</li>
+  <li><strong>LLM leg</strong> — Anthropic API inference calls.</li>
+</ul>
+
+<p>It is a Rust port of the Python <code>zax-sdk-python/demo/claude-desktop-agent</code>, moved out of demo territory and into <code>ai-protect</code> so it can eventually ship as a ZCC component daemon. The port is not a rewrite — module names and control flow deliberately mirror <code>cli.py</code>, <code>mcp_bridge.py</code> and friends so the two can be diffed.</p>
+
+<p><strong>v2.0 — beyond Claude.</strong> What began as a Claude-Desktop broker is now agent-general. A per-agent <a href="#agents">adapter model</a> registers the broker's MCP server into <strong>fourteen</strong> agents' native configs, gated by a product enablement allowlist (Claude, Gemini, ChatGPT/Codex, Copilot). The LLM leg grew a second mechanism — a <a href="#llm">CONNECT-MITM forward proxy</a> for agents with no base-URL knob — and this revision documents the <a href="#ident">identity/auth</a> both legs depend on, plus a <a href="#verify">live end-to-end result</a> that located the real remaining blocker (a gateway capability grant, not code).</p>
+
+<div class="callout note">
+  <span class="lbl">Key constraint the port had to solve</span>
+  <p>The Python SDK monkey-patches <code>httpx</code>, so <em>any</em> outbound call is transparently signed and routed. Rust has no such seam. The design answer: <strong>the SDK's signed <code>reqwest_middleware</code> client <em>is</em> the routing</strong> — every path that must be brokered explicitly holds that client. Nothing is transparent, which is more code but a far more auditable data path.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="place">Placement and build isolation</h2>
+
+<p>The broker lives under <code>ai-protect/ai-broker/</code> as <strong>two new Cargo workspace members</strong>, following the precedent already set by <code>ui</code> and <code>endpoint-ext</code>: a workspace member that is <em>not</em> a dependency of the daemon.</p>
+
+<figure>
+<svg viewBox="0 0 900 330" role="img" aria-label="Build-graph isolation: ai-broker crates are workspace members but not daemon dependencies">
+  <defs>
+    <marker id="a1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,1 L8,4.5 L0,8 z" fill="var(--box-line)"/>
+    </marker>
+    <marker id="a1v" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,1 L8,4.5 L0,8 z" fill="var(--violet)"/>
+    </marker>
+  </defs>
+
+  <rect x="16" y="16" width="868" height="298" rx="12" fill="none" stroke="var(--box-line)" stroke-dasharray="5 4"/>
+  <text x="34" y="42" font-size="12.5" font-weight="700" fill="var(--muted)">ai-protect workspace · resolver = "2"</text>
+
+  <!-- daemon -->
+  <rect x="40" y="66" width="212" height="86" rx="9" fill="var(--red-soft)" stroke="var(--red)"/>
+  <text x="146" y="94" font-size="14" font-weight="700" text-anchor="middle" fill="var(--fg)">ai-warden</text>
+  <text x="146" y="114" font-size="11.5" text-anchor="middle" fill="var(--muted)" class="mono">zscaler-ai-protect</text>
+  <text x="146" y="134" font-size="11.5" text-anchor="middle" fill="var(--red)" font-weight="600">root / LocalSystem</text>
+
+  <!-- other members -->
+  <rect x="40" y="196" width="98" height="52" rx="8" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="89" y="219" font-size="12" font-weight="600" text-anchor="middle" fill="var(--fg)">branding</text>
+  <text x="89" y="236" font-size="10" text-anchor="middle" fill="var(--faint)">build consts</text>
+
+  <rect x="148" y="196" width="82" height="52" rx="8" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="189" y="219" font-size="12" font-weight="600" text-anchor="middle" fill="var(--fg)">ui</text>
+  <text x="189" y="236" font-size="10" text-anchor="middle" fill="var(--faint)">wry/tao</text>
+
+  <rect x="240" y="196" width="122" height="52" rx="8" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="301" y="219" font-size="12" font-weight="600" text-anchor="middle" fill="var(--fg)">endpoint-ext</text>
+  <text x="301" y="236" font-size="10" text-anchor="middle" fill="var(--faint)">macOS ES</text>
+
+  <text x="40" y="278" font-size="11" fill="var(--faint)">↑ isolated members — precedent the broker follows</text>
+
+  <!-- ai-broker group -->
+  <rect x="452" y="56" width="404" height="196" rx="11" fill="var(--violet-soft)" stroke="var(--violet)" stroke-dasharray="5 4"/>
+  <text x="472" y="80" font-size="12.5" font-weight="700" fill="var(--violet)">ai-broker/ — user space</text>
+
+  <rect x="476" y="98" width="164" height="82" rx="9" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="558" y="124" font-size="13" font-weight="700" text-anchor="middle" fill="var(--fg)">ai-broker/sdk</text>
+  <text x="558" y="143" font-size="11" text-anchor="middle" fill="var(--muted)" class="mono">[lib] zax_sdk</text>
+  <text x="558" y="161" font-size="10.5" text-anchor="middle" fill="var(--faint)">forked from zax-sdk-rust/zax-sdk</text>
+
+  <rect x="668" y="98" width="164" height="82" rx="9" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="750" y="124" font-size="13" font-weight="700" text-anchor="middle" fill="var(--fg)">ai-broker/mon</text>
+  <text x="750" y="143" font-size="11" text-anchor="middle" fill="var(--muted)" class="mono">[[bin]] ai-broker-mon</text>
+  <text x="750" y="161" font-size="10.5" text-anchor="middle" fill="var(--faint)">the mono-exe</text>
+
+  <line x1="668" y1="139" x2="644" y2="139" stroke="var(--box-line)" stroke-width="1.6" marker-end="url(#a1)"/>
+  <text x="656" y="196" font-size="10.5" text-anchor="middle" fill="var(--muted)">links</text>
+
+  <rect x="476" y="200" width="356" height="34" rx="7" fill="var(--panel2)" stroke="none"/>
+  <text x="654" y="222" font-size="11" text-anchor="middle" fill="var(--muted)">self-contained deps · never enters the daemon build graph</text>
+
+  <!-- spawn arrow -->
+  <path d="M252,109 L452,109" stroke="var(--violet)" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#a1v)" fill="none"/>
+  <text x="352" y="100" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--violet)">spawns</text>
+  <text x="352" y="130" font-size="10.5" text-anchor="middle" fill="var(--faint)">runtime edge only —</text>
+  <text x="352" y="145" font-size="10.5" text-anchor="middle" fill="var(--faint)">no compile-time dependency</text>
+
+  <text x="34" y="302" font-size="10.5" fill="var(--faint)">cargo build (no -p) still builds only the daemon · cargo build -p ai-broker-mon builds the broker</text>
+</svg>
+<figcaption><strong>Diagram 1 — Build-graph isolation.</strong> The daemon spawns the broker at runtime but never links it, mirroring how ZCC relates to its component daemons.</figcaption>
+</figure>
+
+<h3>Why this shape</h3>
+<ul>
+  <li><strong>The daemon runs as root.</strong> Anything in its build graph is attack surface running with full privilege. The broker pulls in an HTTP server, a JSON-RPC loop, and OIDC — none of which belong there.</li>
+  <li><strong>It sidesteps a blocked build.</strong> ai-protect depends on the private GitHub crate <code>ai-types</code>, which can't be fetched in every environment. Because the broker crates are self-contained, <code>cargo build -p ai-broker-mon</code> works where a full build doesn't.</li>
+  <li><strong>It matches the eventual shipping model.</strong> ZCC's master daemon launches component daemons; the warden launching <code>ai-broker-mon</code> is the same relationship one level down.</li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="platforms">Platforms — Mac &amp; Windows</h2>
+
+<p>The broker targets managed <strong>macOS and Windows</strong> laptops (Linux is detected but not a shipping target). The portable core — the SDK, the loopback LLM proxy, the CONNECT-MITM forward proxy, the stdio MCP bridge, and the per-agent adapters (paths resolved through <code>dirs::home_dir()</code> / env) — runs identically on both. What differs is a small set of <strong>host-integration hooks</strong>: launching the desktop app, elevating for a privileged cleanup, supervising child processes, and protecting on-disk key material. Several of those are macOS-only in the current tree and are enumerated here as Windows work.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Concern</th><th>macOS</th><th>Windows</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Per-agent config + broker home</td><td class="mono">~/… · ~/.ai-broker</td><td class="mono">%USERPROFILE%\… · same</td><td>cross-platform (<code>dirs::home_dir()</code>; <code>$ZAX_DEMO_HOME</code> overrides)</td></tr>
+<tr><td>Claude Desktop binary discovery</td><td class="mono">/Applications · ~/Applications</td><td class="mono">%LOCALAPPDATA%\AnthropicClaude\app-*</td><td>both implemented (<code>paths::claude_desktop_binary</code>)</td></tr>
+<tr><td>Claude Desktop classic config</td><td class="mono">~/Library/Application Support/Claude/</td><td class="mono">%APPDATA%\Claude\</td><td><strong>mac path only</strong> — Windows path is a gap</td></tr>
+<tr><td>Launch the desktop app (bootstrap)</td><td class="mono">open -b &lt;bundle-id&gt;</td><td class="mono">start / ShellExecute</td><td><strong>mac only</strong> — Windows launch is a gap</td></tr>
+<tr><td>Elevated legacy cleanup</td><td><code>osascript</code> admin dialog</td><td>UAC — or not needed</td><td>mac only (guarded)</td></tr>
+<tr><td>Parent watchdog (orphan guard)</td><td class="mono">libc::getppid()</td><td class="mono">OpenProcess + WaitForSingleObject on the parent's handle</td><td><strong>both implemented</strong> (<code>common::start_parent_watchdog</code>)</td></tr>
+<tr><td>Stray-process teardown (recover)</td><td class="mono">pgrep/ps + SIGTERM/SIGKILL</td><td class="mono">CreateToolhelp32Snapshot + Process32NextW (Win32, not tasklist/taskkill)</td><td><strong>both implemented</strong> (<code>recover.rs</code>)</td></tr>
+<tr><td>Local MITM CA key perms</td><td class="mono">chmod 0600</td><td class="mono">SetNamedSecurityInfoW — owner-only DACL, no inherited ACEs</td><td><strong>both implemented</strong> (<code>sdk::common::secure_file</code>)</td></tr>
+<tr><td>Forward-proxy egress + CA trust</td><td colspan="2"><code>HTTPS_PROXY</code> + <code>NODE_EXTRA_CA_CERTS</code> (Node CLIs) — same env on both; the OS trust store differs, but we prefer the scoped Node var</td><td>cross-platform for Node agents</td></tr>
+<tr><td>Daemon privilege + bound-user spawn</td><td>root → uid/gid/groups drop (macOS) via <code>utils::exec</code></td><td>LocalSystem → <code>CreateProcessAsUser</code></td><td><strong>Windows: built + verified end-to-end</strong> on a real VM (SYSTEM service, session 0 → active console user's session — <code>ai-broker-mon.exe</code> confirmed running as that user, not SYSTEM). <strong>macOS: built</strong> (drops to the <code>/dev/console</code> owner). <strong>Linux: deliberately not</strong> — no portable console-session uid primitive without <code>loginctl</code>/utmp parsing in a root daemon; documented, not silent.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="lbl">Design principle — portable core, per-OS edges</span>
+  <p>OS specificity is confined to the host-integration edges (launch, elevation, supervision, key perms), each behind a <code>cfg</code> gate; the brokering data path is identical on both. So "add Windows" is a bounded set of edge implementations, not a second port — and the shape mirrors ai-protect itself (root on macOS, LocalSystem on Windows).</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="proc">Process model — one exe, several modes</h2>
+
+<p><code>ai-broker-mon</code> is a <strong>mono-executable</strong>. Mode is selected by flag; the run modes (<code>--mcp-server</code>, <code>--llm-proxy</code>, <code>--llm-forward-proxy</code>, <code>--control</code>, <code>--sim-daemon</code>, <code>--recover</code>) are mutually exclusive, and recovery-only flags refuse to fall through to the bootstrap. Two diagnostics (<code>--agents</code>, <code>--configure-llm</code>) are read/apply utilities that exit immediately:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Invocation</th><th>Role</th><th>Who starts it</th><th>Lifetime</th></tr></thead>
+<tbody>
+<tr><td class="mono">ai-broker-mon</td><td>Bootstrap — wire configs, run OIDC, launch everything</td><td>The operator (later: the warden daemon)</td><td>Foreground; blocks tailing the log</td></tr>
+<tr><td class="mono">--mcp-server</td><td>stdio JSON-RPC relay for MCP</td><td><strong>Claude Desktop</strong>, once per Code session</td><td>Dies with its parent</td></tr>
+<tr><td class="mono">--llm-proxy</td><td>Loopback reverse proxy (Anthropic, or OpenAI when configured for Codex)</td><td>The bootstrap, or <code>--control</code>'s <code>start_up</code></td><td>Killed on parent exit</td></tr>
+<tr><td class="mono">--control</td><td>Daemon control listener — <code>start_up</code> / <code>register_agent</code> / <code>push_credential</code> over a Unix socket</td><td>The warden daemon (or <code>--sim-daemon</code>)</td><td>Long-lived; supervised</td></tr>
+<tr><td class="mono">--sim-daemon</td><td>Test harness — plays ai-protect's control-driver slice (spawn broker, <code>start_up</code>, register Codex, idle)</td><td>The operator (testing)</td><td>Idles until Ctrl-C; reaps the broker</td></tr>
+<tr><td class="mono">--recover</td><td>Reverse the bootstrap's config edits — the teardown the run modes lack</td><td>The operator</td><td>One-shot; exits</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>One binary means one artifact to build, sign, notarize and ship — and it lets a mode re-spawn itself: <code>paths::resolve_self_command()</code> canonicalizes <code>current_exe()</code>, and that absolute path is what gets written into Claude's config, because Claude Desktop spawns children from its own working directory.</p>
+
+<figure>
+<svg viewBox="0 0 1000 400" role="img" aria-label="Runtime topology of the two brokered legs">
+  <defs>
+    <marker id="a2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,1 L8,4.5 L0,8 z" fill="var(--accent)"/>
+    </marker>
+    <marker id="a2g" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,1 L8,4.5 L0,8 z" fill="var(--gold)"/>
+    </marker>
+  </defs>
+
+  <!-- Claude -->
+  <rect x="16" y="130" width="150" height="130" rx="10" fill="var(--box)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="91" y="172" font-size="13.5" font-weight="700" text-anchor="middle" fill="var(--fg)">Claude</text>
+  <text x="91" y="191" font-size="13.5" font-weight="700" text-anchor="middle" fill="var(--fg)">Desktop</text>
+  <text x="91" y="214" font-size="11" text-anchor="middle" fill="var(--muted)">Code tab</text>
+  <text x="91" y="232" font-size="10.5" text-anchor="middle" fill="var(--faint)">unmodified</text>
+
+  <!-- bridge -->
+  <rect x="238" y="42" width="196" height="86" rx="10" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text x="336" y="68" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--fg)">ai-broker-mon</text>
+  <text x="336" y="87" font-size="11.5" text-anchor="middle" fill="var(--accent)" class="mono">--mcp-server</text>
+  <text x="336" y="107" font-size="10.5" text-anchor="middle" fill="var(--muted)">one per Code session</text>
+  <text x="336" y="121" font-size="10.5" text-anchor="middle" fill="var(--faint)">hand-rolled JSON-RPC server</text>
+
+  <!-- proxy -->
+  <rect x="238" y="264" width="196" height="86" rx="10" fill="var(--gold-soft)" stroke="var(--gold)" stroke-width="1.5"/>
+  <text x="336" y="290" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--fg)">ai-broker-mon</text>
+  <text x="336" y="309" font-size="11.5" text-anchor="middle" fill="var(--gold)" class="mono">--llm-proxy</text>
+  <text x="336" y="329" font-size="10.5" text-anchor="middle" fill="var(--muted)">axum · single instance</text>
+  <text x="336" y="343" font-size="10.5" text-anchor="middle" fill="var(--faint)">loop + cleartext guards</text>
+
+  <!-- sdk -->
+  <rect x="506" y="148" width="158" height="96" rx="10" fill="var(--violet-soft)" stroke="var(--violet)" stroke-width="1.5"/>
+  <text x="585" y="176" font-size="13" font-weight="700" text-anchor="middle" fill="var(--fg)">zax_sdk</text>
+  <text x="585" y="196" font-size="11" text-anchor="middle" fill="var(--muted)">signed client</text>
+  <text x="585" y="215" font-size="10" text-anchor="middle" fill="var(--faint)" class="mono">X-ZAX-Authorization</text>
+  <text x="585" y="232" font-size="10" text-anchor="middle" fill="var(--faint)">reqwest_middleware</text>
+
+  <!-- gateway -->
+  <rect x="722" y="148" width="128" height="96" rx="10" fill="var(--panel2)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="786" y="182" font-size="13" font-weight="700" text-anchor="middle" fill="var(--fg)">ZAX Gateway</text>
+  <text x="786" y="202" font-size="11" text-anchor="middle" fill="var(--muted)">"Optimus"</text>
+  <text x="786" y="222" font-size="10" text-anchor="middle" fill="var(--faint)">policy · audit</text>
+
+  <!-- upstreams -->
+  <rect x="878" y="52" width="108" height="72" rx="9" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="932" y="80" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--fg)">Tenant MCP</text>
+  <text x="932" y="97" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--fg)">servers</text>
+  <text x="932" y="114" font-size="10" text-anchor="middle" fill="var(--faint)">from catalog</text>
+
+  <rect x="878" y="268" width="108" height="72" rx="9" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="932" y="296" font-size="11" font-weight="600" text-anchor="middle" fill="var(--fg)">api.anthropic</text>
+  <text x="932" y="312" font-size="11" font-weight="600" text-anchor="middle" fill="var(--fg)">.com</text>
+  <text x="932" y="330" font-size="10" text-anchor="middle" fill="var(--faint)">or captured origin</text>
+
+  <!-- arrows -->
+  <path d="M166,168 C200,168 206,90 238,88" stroke="var(--accent)" stroke-width="1.8" fill="none" marker-end="url(#a2)"/>
+  <text x="196" y="118" font-size="10.5" font-weight="600" fill="var(--accent)">stdio</text>
+  <text x="188" y="132" font-size="10" fill="var(--faint)">JSON-RPC</text>
+
+  <path d="M166,224 C200,224 206,304 238,306" stroke="var(--gold)" stroke-width="1.8" fill="none" marker-end="url(#a2g)"/>
+  <text x="176" y="272" font-size="10.5" font-weight="600" fill="var(--gold)">HTTP</text>
+  <text x="170" y="286" font-size="10" fill="var(--faint)" class="mono">:8788</text>
+
+  <path d="M434,88 C470,88 476,172 506,176" stroke="var(--accent)" stroke-width="1.8" fill="none" marker-end="url(#a2)"/>
+  <path d="M434,306 C470,306 476,222 506,218" stroke="var(--gold)" stroke-width="1.8" fill="none" marker-end="url(#a2g)"/>
+
+  <line x1="664" y1="196" x2="716" y2="196" stroke="var(--violet)" stroke-width="2" marker-end="url(#a2)"/>
+  <text x="690" y="186" font-size="10" text-anchor="middle" fill="var(--faint)">TLS</text>
+  <text x="690" y="210" font-size="8.5" text-anchor="middle" fill="var(--faint)">RFC 9421</text>
+
+  <path d="M850,178 C866,178 866,100 872,92" stroke="var(--box-line)" stroke-width="1.6" fill="none" marker-end="url(#a1)"/>
+  <path d="M850,214 C866,214 866,292 872,300" stroke="var(--box-line)" stroke-width="1.6" fill="none" marker-end="url(#a1)"/>
+
+  <text x="336" y="20" font-size="11" font-weight="700" text-anchor="middle" fill="var(--accent)">MCP LEG</text>
+  <text x="336" y="380" font-size="11" font-weight="700" text-anchor="middle" fill="var(--gold)">LLM LEG</text>
+</svg>
+<figcaption><strong>Diagram 2 — Runtime topology.</strong> Both legs converge on the same signed SDK client. Claude Desktop is never modified; it is redirected by config alone.</figcaption>
+</figure>
+
+<h3 id="sim-daemon">Testing harness — <code>--sim-daemon</code></h3>
+<p>The broker's real driver is the ai-protect daemon over the control socket. To exercise the broker <strong>without</strong> a full daemon — which, on a host that already runs one (e.g. a ZCC-managed ai-protect), would collide on the IPC socket, hooks and enrollment — <code>ai-broker-mon --sim-daemon</code> plays just the <em>control-driver slice</em>. It reuses the real <code>control::protocol</code> types (so it can't drift from the contract) and, as the invoking non-root user, does exactly what the daemon subscriber does for a Codex smoke test:</p>
+<ol>
+  <li>spawn <code>ai-broker-mon --control --socket &lt;path&gt;</code> (inherits the user — no privilege drop),</li>
+  <li>drive <code>start_up</code> — credentials/attribution from env (<code>ZAX_USER_JWT</code>, <code>ZAX_REFRESH_TOKEN</code>, <code>ZAX_BOUND_USER[_ID]</code>, <code>ZAX_TENANT</code>, <code>ZAX_DEMO_HOME</code>; all optional — absent ⇒ the broker falls back to its refresh token / OIDC, as in the real flow),</li>
+  <li>drive <code>register_agent(codex)</code>,</li>
+  <li>idle so the <code>--llm-proxy</code> stays up for LLM-leg testing; reap the broker on Ctrl-C.</li>
+</ol>
+<p>It touches <strong>none</strong> of ai-protect's daemon machinery (no IPC socket, storage, enrollment, discovery, or hook install), so it can run alongside a real ai-protect without interfering. It covers interface&nbsp;#1 (<code>start_up</code>) and interface&nbsp;#2 (<code>register_agent</code>) end to end against a live broker + proxy.</p>
+<div class="callout note">
+  <span class="lbl">Scope — what it deliberately does <em>not</em> simulate</span>
+  <p><strong>Hooks:</strong> none. Hooks are ai-protect's event/telemetry path (AI tools shelling out to the client on events); the broker never consumes them, so there is nothing hook-shaped for the broker side to receive. <strong>Real agent discovery:</strong> no — it hardcodes a single <code>register_agent(codex)</code>, so it does not run <code>scan_inventory()</code>, the label→broker-id map, or the broker's filter/dedup across multiple agents. It simulates the <em>result</em> of discovery for one agent, not the act. (The harness lives in the <code>ai-broker-mon</code> crate, which doesn't link the daemon, so it can't call ai-protect's scanner; it could instead push the broker's own <code>is_installed()</code> adapters to exercise the multi-agent filter/dedup path — a possible extension.)</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="agents">Agents &amp; the adapter model</h2>
+
+<p>v1.1 wired Claude by hand. v2.0 replaces that with a <strong>per-agent adapter seam</strong> (<code>mon/src/agents/</code>) — one <code>AgentAdapter</code> per agent that knows how to detect it, where its config lives, and how to point its MCP (and, where possible, LLM) traffic at the broker and undo it. <code>bootstrap</code> drives <code>wire_installed_mcp()</code> over every enabled+installed agent; <code>recover</code> drives <code>unwire_other_agents()</code>. The config surfaces mirror ai-protect's own discovery schema (<code>utils/discovery/schema.rs</code>), so the broker writes exactly the shape the daemon already reads.</p>
+
+<div class="callout note">
+  <span class="lbl">Capability vs enablement — two independent axes</span>
+  <p><strong>Capability</strong> (<code>supports_mcp</code> / <code>supports_llm_base_url</code> / <code>supports_llm_forward_proxy</code>) is what an adapter <em>can</em> technically do. <strong>Enablement</strong> (<code>ENABLED_AGENTS</code> = Claude, Gemini, ChatGPT/Codex, Copilot) is the product allowlist of what bootstrap actually wires. All fourteen ship adapter code; non-enabled agents ship <em>dark</em>. An agent is wired only when <code>enabled &amp;&amp; installed &amp;&amp; supports_*</code> — so "enable an LLM leg" is a one-line flag flip once its mechanism is verified.</p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Agent</th><th>Config surface</th><th>Container / shape</th><th>Enabled</th><th>MCP</th><th>LLM</th></tr></thead>
+<tbody>
+<tr><td>claude</td><td class="mono">~/.claude.json + desktop + settings.json</td><td>mcpServers (+ ANTHROPIC_BASE_URL)</td><td>✅</td><td>✅</td><td>base-url (live)</td></tr>
+<tr><td>codex <span class="mono">(=ChatGPT)</span></td><td class="mono">~/.codex/config.toml</td><td>[mcp_servers.*] TOML</td><td>✅</td><td>✅</td><td>base-url (gated)</td></tr>
+<tr><td>gemini</td><td class="mono">~/.gemini/settings.json</td><td>mcpServers</td><td>✅</td><td>✅</td><td>fwd-proxy</td></tr>
+<tr><td>copilot</td><td class="mono">~/.copilot/mcp-config.json</td><td>servers (VS Code shape)</td><td>✅</td><td>✅</td><td>fwd-proxy</td></tr>
+<tr><td>cursor</td><td class="mono">~/.cursor/mcp.json</td><td>mcpServers</td><td>—</td><td>✅</td><td>fwd-proxy</td></tr>
+<tr><td>windsurf</td><td class="mono">~/.codeium/windsurf/mcp_config.json</td><td>mcpServers</td><td>—</td><td>✅</td><td>fwd-proxy</td></tr>
+<tr><td>devin</td><td class="mono">~/.config/devin/config.json</td><td>mcpServers (Claude-compatible)</td><td>—</td><td>✅</td><td>base-url (capable)</td></tr>
+<tr><td>grok</td><td class="mono">~/.grok/config.toml</td><td>[mcp_servers.*] TOML</td><td>—</td><td>✅</td><td>—</td></tr>
+<tr><td>zed</td><td class="mono">~/.config/zed/settings.json</td><td>context_servers (JSONC)</td><td>—</td><td>✅</td><td>—</td></tr>
+<tr><td>opencode</td><td class="mono">~/.config/opencode/opencode.json</td><td>mcp — command-array (JSONC)</td><td>—</td><td>✅</td><td>—</td></tr>
+<tr><td>antigravity</td><td class="mono">~/.gemini/config/mcp_config.json</td><td>mcpServers</td><td>—</td><td>✅</td><td>—</td></tr>
+<tr><td>kiro</td><td class="mono">~/.kiro/settings/mcp.json</td><td>mcpServers</td><td>—</td><td>✅</td><td>—</td></tr>
+<tr><td>amazon_q</td><td class="mono">~/.aws/amazonq/mcp.json</td><td>mcpServers</td><td>—</td><td>✅</td><td>—</td></tr>
+<tr><td>continue</td><td class="mono">~/.continue/config.json</td><td>mcpServers</td><td>—</td><td>✅</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>ai-broker-mon --agents</code> prints this matrix live (id · enabled · installed · mcp · llm-base-url · llm-fwd-proxy) — the fast way to confirm what a host will wire. The writers preserve the user's existing config: JSON via a container-parameterised <code>json</code> helper, TOML via <code>toml_edit</code> (formatting/comments survive). The two JSONC-capable configs (Zed, OpenCode) use a <strong>non-clobbering strict upsert</strong> — a comment-carrying file is skipped with an error rather than silently rewritten from empty.</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="per-agent">Per-agent integration</h2>
+
+<p>One entry per agent — its config surface, MCP shape, and how (if at all) its LLM traffic is brokered. The first four are the enabled priority set (§<a href="#agents">capability vs enablement</a>); the rest ship <em>dark</em> (adapter code present, not wired). Mechanisms named here are detailed in <a href="#mcp">The MCP leg</a> and <a href="#llm">The LLM leg</a>.</p>
+
+<h3 id="a-claude">Claude — Desktop &amp; Code · enabled</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.claude.json</code> (Code tab — full <code>{type:"stdio", …, alwaysLoad:true}</code>) and <code>claude_desktop_config.json</code> (classic Desktop). <strong>LLM:</strong> base-URL — <code>env.ANTHROPIC_BASE_URL</code> in <code>~/.claude/settings.json</code> → the loopback proxy; <strong>live</strong>. Bootstrap also writes the enablement extras (<code>allowedMcpServers</code> · <code>permissions.allow</code> · <code>enabled_mcp_tools</code> · <code>MCP_TIMEOUT</code>). The reference adapter.</p>
+
+<h3 id="a-codex">Codex / ChatGPT — OpenAI · enabled</h3>
+<p><strong>MCP:</strong> <code>[mcp_servers.zax]</code> in <code>~/.codex/config.toml</code> (via <code>toml_edit</code> — the user's formatting and other servers survive). <strong>LLM:</strong> base-URL — a <code>[model_providers.zax]</code> table + <code>model_provider = "zax"</code> pointing at a local OpenAI proxy; <strong>gated</strong> (<code>supports_llm_base_url=false</code>) pending one live check of the redirect + <code>wire_api</code>. Honors <code>$CODEX_HOME</code> (which is often the ChatGPT desktop app's config dir).</p>
+
+<h3 id="a-gemini">Gemini CLI — Google · enabled</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.gemini/settings.json</code>. <strong>LLM:</strong> the default OAuth Code-Assist path has no base-URL knob, so it rides the <a href="#llm">forward-proxy</a> leg rather than a base-URL redirect.</p>
+
+<h3 id="a-copilot">GitHub Copilot CLI · enabled</h3>
+<p><strong>MCP:</strong> <code>servers.zax</code> (VS Code shape, <code>{type:"local", …}</code>) in <code>~/.copilot/mcp-config.json</code> — the top-level key is <code>servers</code>, not <code>mcpServers</code>. <strong>LLM:</strong> no base-URL knob → forward-proxy.</p>
+
+<h3 id="a-cursor">Cursor · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.cursor/mcp.json</code>. <strong>LLM:</strong> vendor-routed; forward-proxy-capable when enabled.</p>
+
+<h3 id="a-windsurf">Windsurf / Cascade · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.codeium/windsurf/mcp_config.json</code>. <strong>LLM:</strong> forward-proxy-capable.</p>
+
+<h3 id="a-devin">Devin CLI — Cognition · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.config/devin/config.json</code> (Claude Code-compatible; XDG on Mac/Linux, <code>%APPDATA%\devin</code> on Windows). <strong>LLM:</strong> base-URL-<em>capable</em> — Anthropic-protocol, so it can point <code>env.ANTHROPIC_BASE_URL</code> at the same proxy as Claude; unverified that Devin reads it, and not enabled.</p>
+
+<h3 id="a-grok">Grok — xAI · ships dark</h3>
+<p><strong>MCP:</strong> <code>[mcp_servers.zax]</code> in <code>~/.grok/config.toml</code> (same TOML shape as Codex). <strong>LLM:</strong> —.</p>
+
+<h3 id="a-zed">Zed · ships dark</h3>
+<p><strong>MCP:</strong> <code>context_servers.zax</code> (<code>{source:"custom", …}</code>) in <code>~/.config/zed/settings.json</code> — a different container key, and JSONC, so it uses the <strong>non-clobbering strict upsert</strong> (a comment-carrying file is skipped, never rewritten from empty). <strong>LLM:</strong> —.</p>
+
+<h3 id="a-opencode">OpenCode · ships dark</h3>
+<p><strong>MCP:</strong> top-level <code>mcp.zax</code> in <code>~/.config/opencode/opencode.json</code> with the distinct <code>{type:"local", command:[bin, …args], environment}</code> shape (command-as-array); JSONC → strict upsert. <strong>LLM:</strong> —.</p>
+
+<h3 id="a-antigravity">Antigravity — Google · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.gemini/config/mcp_config.json</code> (shares the Gemini tree, distinct surface). <strong>LLM:</strong> —.</p>
+
+<h3 id="a-kiro">Kiro — AWS · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.kiro/settings/mcp.json</code>. <strong>LLM:</strong> —.</p>
+
+<h3 id="a-amazonq">Amazon Q Developer CLI · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.aws/amazonq/mcp.json</code>. <strong>LLM:</strong> —.</p>
+
+<h3 id="a-continue">Continue · ships dark</h3>
+<p><strong>MCP:</strong> <code>mcpServers.zax</code> in <code>~/.continue/config.json</code>. <strong>LLM:</strong> —.</p>
+
+<div class="callout">
+  <span class="lbl">Deliberately not adapters</span>
+  <p><strong>VS Code</strong> is scoped to login/subscription, not MCP, per product direction. <strong>OpenClaw / Amp / Aider</strong> have no MCP config surface in ai-protect's discovery schema — there is nothing to write.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="boot">Bootstrap sequence</h2>
+
+<p>Bootstrap is <strong>idempotent by design</strong> — every step is an <code>ensure_*</code> that no-ops when already satisfied. The single exception is deliberate: <code>force_reauth()</code> deletes the credential sidecar on every run, so OIDC always re-runs fresh.</p>
+
+<p>Two one-time chores run first. <code>migrate_legacy_home()</code> renames a pre-existing <code>~/zax-demo</code> to the hidden <code>~/.ai-broker</code> (an atomic same-filesystem move, so the cached JWT and <code>.llm_upstream</code> aren't orphaned by the rename); it is skipped when <code>$ZAX_DEMO_HOME</code> is set explicitly. On macOS, <code>cleanup_legacy_managed_mcp()</code> removes any stale <code>managed-mcp.json</code> — its exclusive mode is incompatible with Claude Desktop's Code tab — prompting a macOS admin dialog to do so.</p>
+
+<figure>
+<svg viewBox="0 0 1000 660" role="img" aria-label="Bootstrap sequence diagram">
+  <defs>
+    <marker id="s1" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto">
+      <path d="M0,1 L7.5,4 L0,7 z" fill="var(--accent)"/>
+    </marker>
+    <marker id="s2" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto">
+      <path d="M0,1 L7.5,4 L0,7 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+
+  <!-- lifelines -->
+  <g font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--fg)">
+    <rect x="18" y="14" width="118" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="77" y="31">Operator</text><text x="77" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">terminal</text>
+
+    <rect x="168" y="14" width="128" height="38" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="232" y="31">bootstrap</text><text x="232" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">no-arg mode</text>
+
+    <rect x="336" y="14" width="140" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="406" y="31">Config files</text><text x="406" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">~/.claude*, .ai-broker</text>
+
+    <rect x="524" y="14" width="112" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="580" y="31">IdP</text><text x="580" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">zsloginalpha</text>
+
+    <rect x="686" y="14" width="118" height="38" rx="8" fill="var(--gold-soft)" stroke="var(--gold)"/>
+    <text x="745" y="31">llm-proxy</text><text x="745" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">child</text>
+
+    <rect x="852" y="14" width="130" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="917" y="31">Claude Desktop</text><text x="917" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">app</text>
+  </g>
+
+  <g stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 4">
+    <line x1="77" y1="56" x2="77" y2="620"/>
+    <line x1="232" y1="56" x2="232" y2="620"/>
+    <line x1="406" y1="56" x2="406" y2="620"/>
+    <line x1="580" y1="56" x2="580" y2="620"/>
+    <line x1="745" y1="56" x2="745" y2="620"/>
+    <line x1="917" y1="56" x2="917" y2="620"/>
+  </g>
+
+  <rect x="224" y="76" width="16" height="520" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+
+  <g font-size="10.5" fill="var(--fg)">
+    <!-- 1 -->
+    <line x1="77" y1="86" x2="222" y2="86" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="84" y="80" fill="var(--muted)">run ai-broker-mon</text>
+
+    <!-- 2 templates -->
+    <line x1="242" y1="116" x2="400" y2="116" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="110">1 · ensure_templates → config.yaml, init.yaml, snippet</text>
+
+    <!-- 3 force reauth -->
+    <line x1="242" y1="148" x2="400" y2="148" stroke="var(--red)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="142" fill="var(--red)">2 · DELETE .credentials.json (force_reauth)</text>
+
+    <!-- 4 claude.json -->
+    <line x1="242" y1="180" x2="400" y2="180" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="174">3 · register mcpServers.zax → ~/.claude.json <tspan fill="var(--faint)">(+.bak)</tspan></text>
+
+    <!-- 5 capture -->
+    <line x1="400" y1="212" x2="244" y2="212" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#s2)"/>
+    <text x="248" y="206" fill="var(--amber)">4 · capture original ANTHROPIC_BASE_URL → .llm_upstream</text>
+
+    <!-- 6 settings -->
+    <line x1="242" y1="244" x2="400" y2="244" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="238">5 · settings.json policy — 5 keys <tspan fill="var(--faint)">(+.bak · prior MCP_TIMEOUT → .mcp_timeout)</tspan></text>
+
+    <!-- 7 desktop cfg -->
+    <line x1="242" y1="276" x2="400" y2="276" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="270">6 · register zax → claude_desktop_config.json</text>
+
+    <!-- 8 oidc -->
+    <line x1="242" y1="316" x2="574" y2="316" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="310">7 · OIDC authorize — <tspan font-weight="700">browser opens</tspan></text>
+    <line x1="574" y1="348" x2="244" y2="348" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#s2)"/>
+    <text x="300" y="342" fill="var(--muted)">callback 127.0.0.1:8765 → triple JWT</text>
+
+    <!-- 9 cache -->
+    <line x1="242" y1="380" x2="400" y2="380" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="374">8 · cache JWT → .credentials.json</text>
+
+    <!-- 10 spawn proxy -->
+    <line x1="242" y1="418" x2="739" y2="418" stroke="var(--gold)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="412" fill="var(--gold)">9 · spawn --llm-proxy (reuses the JWT just cached)</text>
+    <rect x="737" y="418" width="16" height="178" rx="3" fill="var(--gold-soft)" stroke="var(--gold)" stroke-width="1"/>
+
+    <!-- 11 poll -->
+    <line x1="242" y1="450" x2="735" y2="450" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#s2)"/>
+    <text x="248" y="444" fill="var(--muted)">10 · poll TCP :8788 until ready (20 s budget)</text>
+
+    <!-- 12 open -->
+    <line x1="242" y1="488" x2="911" y2="488" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="482">11 · open -b com.anthropic.claudefordesktop</text>
+
+    <!-- 13 tail -->
+    <path d="M242,522 h56 a8,8 0 0 1 8,8 v14 a8,8 0 0 1 -8,8 h-56" fill="none" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="316" y="540">12 · tail -F logs/zax.log — <tspan font-weight="700">blocks until Ctrl-C</tspan></text>
+
+    <!-- 14 teardown -->
+    <line x1="242" y1="586" x2="735" y2="586" stroke="var(--red)" stroke-width="1.5" marker-end="url(#s1)"/>
+    <text x="248" y="580" fill="var(--red)">13 · on exit — SIGTERM, then kill after 300 ms</text>
+  </g>
+
+  <rect x="16" y="612" width="968" height="34" rx="8" fill="var(--amber-soft)" stroke="none"/>
+  <text x="32" y="634" font-size="11" fill="var(--amber)" font-weight="600">Step 5 writes ANTHROPIC_BASE_URL into the user-level settings.json — shared with Claude Code CLI. See Open issues.</text>
+</svg>
+<figcaption><strong>Diagram 3 — Bootstrap sequence.</strong> Steps 4 and 5 are ordered deliberately: the original upstream must be snapshotted <em>before</em> the policy overwrites it.</figcaption>
+</figure>
+
+<div class="callout">
+  <span class="lbl">Ordering that matters</span>
+  <p><code>capture_original_upstream()</code> runs <strong>before</strong> <code>ensure_user_settings_policy()</code>. Otherwise the proxy would snapshot its own address as the forward target and loop. The captured value lands in <code>.llm_upstream</code>, which is also what makes a clean restore possible later.</p>
+  <p>Likewise the LLM proxy starts <strong>after</strong> OIDC, so it reuses the just-cached JWT instead of racing a second interactive sign-in.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="mcp">The MCP leg</h2>
+
+<p>Rust has no MCP <em>server</em> crate, so the stdio JSON-RPC server the agent talks to is hand-rolled in <code>bridge.rs</code> — newline-delimited JSON on stdin/stdout, protocol version <code>2024-11-05</code>. Upstream servers are driven through the SDK's <code>ZaxClientSession</code>. The same bridge serves <em>any</em> agent that spawns <code>--mcp-server</code> from its config (§<a href="#per-agent">Per-agent integration</a>), not just Claude — the diagram uses Claude Desktop as the concrete example.</p>
+
+<figure>
+<svg viewBox="0 0 1000 560" role="img" aria-label="MCP tool call sequence diagram">
+  <defs>
+    <marker id="s3" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto">
+      <path d="M0,1 L7.5,4 L0,7 z" fill="var(--accent)"/>
+    </marker>
+    <marker id="s4" markerWidth="8" markerHeight="8" refX="7.5" refY="4" orient="auto">
+      <path d="M0,1 L7.5,4 L0,7 z" fill="var(--muted)"/>
+    </marker>
+  </defs>
+
+  <g font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--fg)">
+    <rect x="16" y="14" width="136" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="84" y="31">Claude Desktop</text><text x="84" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">Code session</text>
+
+    <rect x="222" y="14" width="140" height="38" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+    <text x="292" y="31">bridge</text><text x="292" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">--mcp-server</text>
+
+    <rect x="436" y="14" width="140" height="38" rx="8" fill="var(--violet-soft)" stroke="var(--violet)"/>
+    <text x="506" y="31">ZaxClientSession</text><text x="506" y="45" font-size="9.5" font-weight="400" fill="var(--faint)">signed</text>
+
+    <rect x="650" y="14" width="126" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="713" y="31">ZAX Gateway</text>
+
+    <rect x="850" y="14" width="134" height="38" rx="8" fill="var(--panel2)" stroke="var(--box-line)"/>
+    <text x="917" y="31">Upstream MCP</text>
+  </g>
+
+  <g stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 4">
+    <line x1="84" y1="56" x2="84" y2="530"/>
+    <line x1="292" y1="56" x2="292" y2="530"/>
+    <line x1="506" y1="56" x2="506" y2="530"/>
+    <line x1="713" y1="56" x2="713" y2="530"/>
+    <line x1="917" y1="56" x2="917" y2="530"/>
+  </g>
+
+  <rect x="284" y="76" width="16" height="428" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+
+  <g font-size="10.5" fill="var(--fg)">
+    <line x1="84" y1="86" x2="282" y2="86" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="90" y="80">spawn (stdio) · env ZAX_DEMO_HOME</text>
+
+    <line x1="302" y1="118" x2="500" y2="118" stroke="var(--violet)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="308" y="112">sdk_init — <tspan font-weight="700">reuses cached JWT, no browser</tspan></text>
+
+    <path d="M302,146 h50 a8,8 0 0 1 8,8 v12 a8,8 0 0 1 -8,8 h-50" fill="none" stroke="var(--muted)" stroke-width="1.3" marker-end="url(#s4)"/>
+    <text x="372" y="163" fill="var(--muted)">preflight block → logs/zax.log</text>
+
+    <line x1="302" y1="200" x2="707" y2="200" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="308" y="194">list_brokers() — <tspan font-weight="700">broker catalog from vector (Zscaler api), not config.yaml</tspan></text>
+
+    <line x1="707" y1="230" x2="304" y2="230" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#s4)"/>
+    <text x="400" y="224" fill="var(--muted)">N brokers · each carries a pre-rendered gateway_url</text>
+
+    <rect x="272" y="252" width="700" height="94" rx="8" fill="none" stroke="var(--box-line)" stroke-dasharray="4 4"/>
+    <text x="286" y="270" font-size="10" font-weight="700" fill="var(--muted)">par — all upstreams concurrently · 15 s cap · bounded by the slowest, not the sum</text>
+
+    <line x1="302" y1="292" x2="911" y2="292" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="308" y="286">initialize + tools/list  <tspan fill="var(--faint)">(via gateway)</tspan></text>
+    <line x1="911" y1="322" x2="304" y2="322" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#s4)"/>
+    <text x="400" y="316" fill="var(--muted)">tool descriptors · session kept open to preserve mcp-session-id</text>
+
+    <line x1="282" y1="372" x2="90" y2="372" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="96" y="366">tools = <tspan class="mono" font-weight="700">&lt;server&gt;_&lt;tool&gt;</tspan> <tspan fill="var(--faint)">— duplicates: keep first</tspan></text>
+
+    <line x1="84" y1="410" x2="282" y2="410" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="90" y="404">tools/call</text>
+
+    <line x1="302" y1="440" x2="911" y2="440" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#s3)"/>
+    <text x="308" y="434">route via (server_id, original name) · <tspan font-weight="700">15 s timeout</tspan></text>
+
+    <line x1="911" y1="472" x2="90" y2="472" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#s4)"/>
+    <text x="330" y="466" fill="var(--muted)">result — every failure returns <tspan class="mono" font-weight="700" fill="var(--amber)">isError: true</tspan>, never a JSON-RPC error</text>
+  </g>
+
+  <rect x="16" y="510" width="968" height="36" rx="8" fill="var(--panel2)"/>
+  <text x="32" y="527" font-size="10.5" fill="var(--muted)">STDOUT carries only JSON-RPC. All logging is diverted to logs/zax.log — a single stray println would corrupt the protocol stream.</text>
+  <text x="32" y="540" font-size="10.5" fill="var(--muted)">An upstream that fails to handshake is skipped, not fatal: the bridge starts with whatever connected.</text>
+</svg>
+<figcaption><strong>Diagram 4 — MCP tool call path.</strong> Tool errors are surfaced as results, so Claude sees a failed tool rather than a crashed server.</figcaption>
+</figure>
+
+<p>Verified against the dev tenant: <strong>214 tools advertised from 11 of 11 brokers</strong> (three legitimately expose zero tools and are reported rather than hidden), with the Claude config <strong>SHA-256-identical before and after</strong> a <code>--mcp-server</code> run — the mode only reads Claude's files, and a full run left <code>stderr</code> at 0 bytes, proving nothing but JSON-RPC touched the stream.</p>
+
+<h3>Design choices in the relay</h3>
+<ul>
+  <li><strong>Namespaced tool names</strong> <code>&lt;server&gt;_&lt;tool&gt;</code> — the <em>server</em> component is the broker label (slug, falling back to name then id), and the session map is keyed by that same label. Multiple upstreams coexist in one flat MCP surface; collisions keep the first and log a warning.</li>
+  <li><strong>Errors as results.</strong> A JSON-RPC error would make Claude treat the whole server as broken. <code>isError: true</code> keeps the session alive and lets the model react to a single failed call.</li>
+  <li><strong>Sessions stay open</strong> per upstream, so <code>mcp-session-id</code> survives across calls.</li>
+  <li><strong>Concurrent handshakes</strong> — startup cost is the slowest upstream, not their sum.</li>
+  <li><strong>Catalog-driven.</strong> Brokers come from <strong>vector</strong> at init — <code>list_brokers()</code> does a <code>POST {api}/vector/v1/sdk/brokers</code>, and each broker arrives with a fully-rendered <code>gateway_url</code> (<code>https://&lt;gateway&gt;/&lt;slug&gt;/mcp</code>). The gateway (Optimus) brokers the traffic but has no catalog endpoint of its own. <code>config.yaml</code>'s <code>mcp_servers</code> list is a legacy fallback used only if the fetch returns nothing.</li>
+</ul>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="llm">The LLM leg — multi-provider</h2>
+
+<p>Every brokered LLM call ends the same way — at the gateway's <em>reverse</em> face in front of the real provider. What differs is <strong>how the agent's traffic gets there</strong>, and that splits into two mechanisms by whether the agent exposes a base-URL knob.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Mechanism</th><th>How the agent reaches the gateway</th><th>Base-URL knob?</th><th>Agents</th></tr></thead>
+<tbody>
+<tr><td><strong>Reverse proxy</strong> (base-URL)</td><td>agent's <code>*_BASE_URL</code> → local proxy → gateway</td><td>required</td><td>Claude (live), Codex (gated), Devin (capable)</td></tr>
+<tr><td><strong>Forward proxy</strong> (CONNECT-MITM)</td><td>agent's egress → local CONNECT proxy (MITM) → gateway</td><td>none needed</td><td>Copilot, Cursor, Windsurf, Gemini-OAuth</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Reverse-proxy leg (base-URL agents)</h3>
+<p>An <code>axum</code> reverse proxy on <code>127.0.0.1:8788</code> (override: <code>ZAX_LLM_PROXY_PORT</code>). The agent is pointed at it — Claude via <code>ANTHROPIC_BASE_URL</code>, Codex via a <code>[model_providers.zax]</code> table + <code>model_provider="zax"</code>. Requests are re-issued through the SDK's signed client, so they exit via the gateway.</p>
+
+<p><strong>The transport is provider-agnostic.</strong> <code>forward()</code> prepends any <code>upstream</code> origin to the request path and <code>ZaxMiddleware</code> signs + routes to the gateway; only the <em>defaults</em> were Anthropic-specific. So <code>--llm-proxy --upstream https://api.openai.com --port 8789</code> runs an OpenAI proxy from the same binary — the SDK forward test already exercises a non-Anthropic upstream.</p>
+
+<p>Upstream resolution is layered and defensive — <code>resolve_llm_upstream()</code>:</p>
+
+<ol>
+  <li><code>ZAX_LLM_UPSTREAM</code> env override, else</li>
+  <li>the captured <code>.llm_upstream</code> state file, else</li>
+  <li><code>https://api.anthropic.com</code></li>
+</ol>
+
+<p>Two guards then run unconditionally: if the candidate points at the proxy's own origin it is discarded (<strong>loop guard</strong>), and if <code>upstream_is_safe()</code> rejects it as cleartext off-host it is discarded too. Either way it falls back to the Anthropic default rather than failing.</p>
+
+<p>"Reverse" is deliberate: Claude has no proxy configured — it believes <code>127.0.0.1:8788</code> <em>is</em> the Anthropic API, and the destination is ours (from config), not named in the request. The ZAX gateway one hop later is a <em>forward</em> proxy, so the leg runs a reverse and a forward proxy back-to-back. That is why the gateway needs no route for <code>/v1/messages</code>: our proxy re-addresses each request into the absolute-form the gateway forward-proxies, with the <code>Host</code> header preserved so it still lands on the real origin. A forward failure returns <code>502</code> with a <code>zax_llm_proxy_error</code> body.</p>
+
+<h3>Forward-proxy leg (knob-less agents)</h3>
+<p>Copilot, Cursor, Windsurf and Gemini's OAuth path have no base-URL knob. For them <code>--llm-forward-proxy</code> (port 8790) runs a local CONNECT proxy: it answers <code>CONNECT host:443</code> with <code>200</code>, terminates TLS with a leaf minted on the fly for that SNI by a <strong>local ai-broker CA</strong> (the agent trusts it via <code>NODE_EXTRA_CA_CERTS</code>), then the decrypted inner request <strong>re-enters the same reverse handler</strong> (<code>llm_leg::build_app</code>) with <code>upstream = https://&lt;connect-host&gt;</code> — so the SDK re-signs and routes to the gateway, reusing the reverse leg's SSE-safe streaming.</p>
+
+<div class="callout note">
+  <span class="lbl">Why local MITM (D1), not a relay to Optimus's own forward face (D2)</span>
+  <p>Optimus attributes identity from the SDK's <em>signed request headers</em> (<code>X-ZAX-Authorization</code> / RFC-9421 signature). A raw request forward-proxied straight to Optimus carries none of that — its forward-proxy auth is only a <strong>static <code>proxy_auth_token</code></strong>, so per-user ZAX identity would be lost. Hence the proxy must terminate TLS locally, re-sign, and chain to the gateway. Two CAs: the <em>local</em> ai-broker CA the agent trusts vs. the <em>cloud</em> Optimus CA (never exposed to the agent). <code>mitm::LocalCa</code> mints/persists the CA key <code>0600</code> and per-SNI leaves; unit-tested.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">Forward proxy — gated, three open edges</span>
+  <p><strong>HTTP/2:</strong> ALPN is pinned to <code>http/1.1</code> for now (a client insisting on h2 fails). <strong>e2e:</strong> compile-verified + CA/resolver unit-tested, not yet run against a live agent+gateway. <strong>Env injection:</strong> nothing sets <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> for a <em>user-launched</em> CLI — the proxy currently just <em>logs</em> what each installed agent needs. Bootstrap does not start it yet.</p>
+</div>
+
+<h3>Optimus is both a forward and a reverse proxy</h3>
+<p>The gateway decides its role per connection on a shared listener. A <strong>CONNECT</strong> request → its <em>forward</em> face (CONNECT + optional TLS interception), for app/browser traffic that can't be pointed at a base URL. A host-matched request → its <em>reverse</em> face — an API gateway in front of <strong>~21 providers</strong> (<code>config/providers/*.yaml</code>, matched by domain + uri-path), including all four priority endpoints: Anthropic, OpenAI (<code>/v1/chat/completions</code> + <code>/responses</code>), Google (incl. the Gemini CLI's <code>cloudcode-pa.googleapis.com</code>), and GitHub Copilot. ai-broker deliberately uses a <em>local</em> forward proxy + the gateway's <em>reverse</em> face, precisely to keep per-user identity (above). See the companion <a href="https://claude.ai/code/artifact/e8ffafe8-5363-402d-bb10-5f9874d0a67d">message-flow diagrams</a>.</p>
+
+<div class="callout">
+  <span class="lbl">Caveat — brokered ≠ inspected to full depth</span>
+  <p>Optimus's deepest role-tagged prompt extraction (the <code>ai_metadata</code> pipeline) fires only for <strong>OpenAI + Anthropic</strong>, string-valued content, today. Other providers are still brokered and inspected, but via the array-aware inline content-guard fallback — less granular.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="ident">Identity, auth &amp; credentials</h2>
+
+<div class="callout note">
+  <span class="lbl">The central identity decision</span>
+  <p>The broker <strong>registers as Claude Desktop</strong>, not as itself. <code>sdk_init()</code> passes <code>agent_metadata.software_path</code> pointing at the installed Claude Desktop binary, and the SDK derives everything from that app: name and version from <code>Info.plist</code>, a hash of the executable, and the Developer-ID code signature (Anthropic PBC).</p>
+  <p>So the tenant sees a governed <em>Claude Desktop</em>, which is the thing security policy is actually about — not an anonymous relay. Nothing about identity is configured in <code>init.yaml</code>.</p>
+</div>
+
+<p>Binary discovery is per-OS and best-effort: macOS walks <code>/Applications</code> then <code>~/Applications</code> reading <code>CFBundleExecutable</code>; Windows picks the highest-versioned <code>app-*</code> directory under <code>%LOCALAPPDATA%/AnthropicClaude</code>. Linux returns <code>None</code>.</p>
+
+<h3>The six-stage SDK pipeline</h3>
+
+<p>Both child modes enter through <code>sdk_init()</code>, which runs the vendored SDK's pipeline (<code>sdk/src/startup.rs</code>). It splits across two control-plane hosts under <code>api.&lt;cloud&gt;</code> — <strong>vector</strong> (register + broker catalog) and <strong>bumblebee</strong> (activate + token-exchange) — before the traffic ever reaches the gateway.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Stage</th><th>Call</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>1 · CONFIG</td><td>—</td><td>Shipped <code>init.yaml</code> plus the per-agent overrides</td></tr>
+<tr><td>2 · AUTHENTICATE</td><td>OIDC (browser)</td><td><code>zax_user_jwt</code> — skipped when a token is supplied</td></tr>
+<tr><td>3 · REGISTER</td><td class="mono">POST {api}/vector/v1/sdk/agents:register + :status</td><td>Agent identity; 10 s poll, <strong>300 s</strong> timeout</td></tr>
+<tr><td>4 · ACTIVATE</td><td class="mono">POST {api}/bumblebee/v1/activations</td><td><code>instance_jwt</code> + HMAC material</td></tr>
+<tr><td>5 · EXCHANGE</td><td class="mono">POST {api}/bumblebee/v1/token-exchange</td><td>RFC 8693 → the triple JWT (<code>X-ZAX-Authorization</code>)</td></tr>
+<tr><td>6 · FORWARD</td><td>—</td><td>Build the signed, gateway-routing client</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Stages 4–6 all sit downstream of REGISTER, so an unapproved (<em>pending</em>) registration fails <code>sdk_init()</code> and takes both legs with it. Server-side this is solved with an auto-approval policy (<code>bumblebee-admin</code>) that stamps <code>x-agent-auto-approval</code> so vector approves inline — the dev tenant returns <code>status="approved"</code> on poll #1. The policy carries no version or hash dimension, which matters because the broker registers <em>as</em> Claude Desktop and derives <code>software_hash</code> from its auto-updating binary; without it, every Desktop update would open a fresh pending window.</p>
+
+<div class="callout open">
+  <span class="lbl">Which identity carries the caps — instance vs agent type (open)</span>
+  <p>The pipeline mints identity at three granularities: <strong>REGISTER</strong> yields an <code>agent_id</code> (a registered agent record — e.g. <code class="mono">1cffd6be-…</code>), <strong>ACTIVATE</strong> an <code>instance_id</code> / <code>instance_jwt</code> (a specific activation <em>instance</em>), and <strong>token-exchange</strong> the triple JWT whose <code>intersected_caps</code> are minted from <em>this</em> <code>instance_jwt</code> × <em>this</em> <code>zax_user_jwt</code>. So the caps are carried <strong>per-instance, per-user</strong> — the instance sense, not the abstract agent <em>type</em>.</p>
+  <p>The nuance: because the broker registers <em>as</em> Claude Desktop, the software identity has a <strong>type-flavoured</strong> component (the app it impersonates), and approval carries no version/hash dimension — so the effective identity is "this user's Claude Desktop on this device." And the <strong>admin-granted</strong> set that <code>intersected_caps</code> is intersected against lives entirely <strong>server-side</strong> (Bumblebee / dashboard), which the broker never sees. So <em>where a grant is scoped</em> — per <code>agent_id</code>, per user, per device, or per agent-type/policy across the tenant — is a gateway-side question <strong>not answerable from the broker code</strong>; the broker only observes the intersected result in its own triple JWT. Worth pinning down on the gateway side.</p>
+</div>
+
+<h3>Credential flow</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Mode</th><th>Credential behaviour</th><th>User-visible</th></tr></thead>
+<tbody>
+<tr><td>bootstrap</td><td>Deletes the sidecar, runs full interactive OIDC, caches the result</td><td><strong>Browser opens</strong></td></tr>
+<tr><td class="mono">--mcp-server</td><td>Loads <code>.credentials.json</code>, passes the cached JWT into <code>InitOptions</code></td><td>Silent</td></tr>
+<tr><td class="mono">--llm-proxy</td><td>Same cached path</td><td>Silent</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>This is what makes per-session spawning viable: Claude Desktop starts a fresh bridge for every Code session, and none of them may block on a browser. The tradeoff is that the cache is the single point of freshness — hence <code>REFRESH_BUFFER_SECONDS = 300</code>, refreshing before expiry so the bridge never presents an already-dead JWT to the gateway.</p>
+
+<p>The cached token lasts <strong>~24 hours</strong>, so a cache miss — and with it a browser window from a process the user never launched — is a roughly daily event; whether a human must act then depends on the IdP session, not the broker (see <a href="#open">Open issues</a>). And the sidecar is written <strong>only after the whole pipeline succeeds</strong>, so a run that registers and then waits for approval caches nothing. In production both concerns are moot: the harness supplies <code>AID_USER_JWT</code> and the SDK never runs OIDC.</p>
+
+<h3>Credential renewal — three tokens, three owners</h3>
+<p>Three JWTs are in play, with different lifetimes and different machinery keeping each alive:</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Token</th><th>Lifetime</th><th>Renewed by</th><th>Self-renews?</th></tr></thead>
+<tbody>
+<tr><td>user JWT <span class="mono">zax_user_jwt</span></td><td>~24 h</td><td>OIDC; cached in the sidecar</td><td><strong>No</strong> — re-runs interactive OIDC on expiry</td></tr>
+<tr><td>instance JWT</td><td>~24 h (its <code>exp</code>)</td><td><code>InstanceJWTManager</code> background task — re-POST <code>/activations</code> at <code>exp − 300&nbsp;s</code></td><td><strong>Yes</strong></td></tr>
+<tr><td>triple JWT</td><td>~1 h</td><td><code>jwt_util</code> token-exchange; in-memory cache keyed by <code>sha256(user|instance)</code>, refreshed <code>exp − 300&nbsp;s</code></td><td>Yes — while its inputs stay valid</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout open">
+  <span class="lbl">Can the user JWT be self-renewing?</span>
+  <p><strong>Not today.</strong> Unlike the instance JWT, nothing renews the user JWT without a browser: <code>oidc_login</code> keeps only the resulting JWT (<em>no</em> <code>refresh_token</code>), the sidecar persists only <code>zax_user_jwt</code> + <code>zax_expires_at</code>, and there is no <code>grant_type=refresh_token</code> path anywhere. When the cache goes stale the loader "will run interactive OIDC"; in a headless process <code>oidc_login</code> instead warns <em>"inject a new ZAX_USER_JWT"</em> and fails.</p>
+  <p><strong>It could be made so</strong>, via standard OIDC refresh: (1)&nbsp;request <code>offline_access</code> in the scope, (2)&nbsp;capture the <code>refresh_token</code>, (3)&nbsp;persist it in the sidecar, (4)&nbsp;add a refresh path (a background loop like <code>InstanceJWTManager</code>, or refresh-on-use). Caveats: the <strong>IdP governs it</strong> — refresh tokens expire, rotate and can be revoked, and session/MFA policy may still force periodic interactive re-auth — and a stored refresh token is a <strong>durable bearer secret</strong> needing tighter protection than a 24&nbsp;h JWT.</p>
+</div>
+
+<p>So there are three ways to survive the ~24&nbsp;h user-JWT expiry without a browser prompt — the same problem solved from opposite ends:</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Approach</th><th>Who renews</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>Interactive OIDC</td><td>the user (browser)</td><td>current behaviour</td></tr>
+<tr><td><code>AID_USER_JWT</code> handoff</td><td>ZCC / the daemon supplies it</td><td>designed, not wired — the intended production path</td></tr>
+<tr><td>Refresh-token self-renewal</td><td>the broker itself</td><td>not built; feasible with the four steps above + IdP support</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Bound user id vs user JWT</h3>
+<p>A recurring confusion — they are different <em>kinds</em> of thing. The <strong>bound user id</strong> (ai-protect's enrolled <code>users.id</code>) is a stable <em>identifier</em> — a name, not a secret, doesn't expire, not verifiable on its own. The <strong>user JWT</strong> is a signed, ~5-minute <em>credential</em> — a bearer secret, self-verifiable, and the <em>input</em> that mints the triple JWT. The id usually appears as a claim <em>inside</em> the JWT, so you can read the id from a JWT but never the reverse: an id can't become a JWT without the user authenticating. This is why "the daemon knows the bound user" isn't enough to skip OIDC.</p>
+
+<h3>The <code>AID_USER_JWT</code> handoff — designed, not built</h3>
+<p>The intended production model has the resident daemon inject the ZAX user JWT so the SDK skips OIDC (a root daemon can't open a browser). Status:</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Layer</th><th>Provide-JWT-from-ZCC</th><th>Evidence</th></tr></thead>
+<tbody>
+<tr><td>SDK</td><td>✅ designed</td><td><code>StartupOptions.zax_user_jwt</code> — supplied ⇒ skips OIDC</td></tr>
+<tr><td><code>ai-broker-mon</code></td><td>❌ not wired</td><td><code>sdk_init</code> reads its own cached sidecar; no <code>AID_USER_JWT</code> read</td></tr>
+<tr><td>daemon (<code>ai_broker_launch</code>)</td><td>❌ TODO</td><td><code>.env("AID_USER_JWT", …)</code> is commented-out</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>And ai-protect cannot currently obtain that user JWT.</strong> It holds a <em>device</em> credential (<code>wdc_</code>) + the bound-user id, and it discovers <em>other agents'</em> tokens presence-only — but it has <strong>no client for the ZAX control plane</strong> (no Vector/Bumblebee/<code>oidc_login</code> code; that lives entirely in the broker SDK). So closing the handoff needs a capability that doesn't exist yet: either the backend mints a broker user token from the device identity, or SSO-enroll is extended to capture a broker-scoped ZID token. Until then, <code>ai-broker-mon</code> doing its own OIDC is the only working path.</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="backends">Two backends, two API surfaces</h2>
+
+<p>ai-protect and ai-broker talk to <strong>two different central backends</strong>, both over HTTP APIs (never a direct database). This is the structural reason the daemon can't simply hand over a broker credential.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th></th><th>ai-protect</th><th>ai-broker</th></tr></thead>
+<tbody>
+<tr><td>Backend</td><td><strong>ai-platform</strong> (device plane)</td><td><strong>ZAX control plane</strong> + gateway</td></tr>
+<tr><td>Base</td><td>enrolled <code>--server-url</code></td><td class="mono">api.&lt;cloud&gt; / gateway.&lt;cloud&gt;</td></tr>
+<tr><td>Auth</td><td><code>wdc_</code> <strong>device</strong> bearer credential</td><td>user JWT → instance JWT → triple JWT</td></tr>
+<tr><td>Holds</td><td>device identity, bound <code>users.id</code>, settings, discovered artifacts</td><td>broker <strong>agent identity + capabilities</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>Device plane</strong> (<code>src/utils/enrollment.rs</code>): <code class="mono">/endpoint/v1/</code> — <code>enroll · heartbeat · config · events(/bulk) · resolve · telemetry · uploads/presign · files/{presign,confirm} · agents/raw-configs · releases/artifact</code>. <strong>ZAX control plane</strong> (<code>ai-broker/sdk</code>): Vector <code class="mono">/vector/v1/sdk/agents:register · :status · brokers</code>, Bumblebee <code class="mono">/bumblebee/v1/activations · token-exchange</code>, then <code>gateway.&lt;cloud&gt;</code> (Optimus) for brokered MCP/LLM.</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="config">Config layering and file mutations</h2>
+
+<p>Three tiers, with different ownership rules:</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Tier</th><th>Location</th><th>Ownership rule</th></tr></thead>
+<tbody>
+<tr><td>SDK runtime config</td><td><code>ai-broker/config/</code> — <code>init.yaml</code>, <code>auth.yaml</code>, <code>ZaxDevRoot.crt</code></td><td>Ships with the component; <code>cloud: prod</code> default</td></tr>
+<tr><td>Templates</td><td><code>mon/templates/</code>, compiled in via <code>include_str!</code></td><td><code>config.yaml</code> copy-if-missing (user-owned); <code>init.yaml</code> refreshed whenever it differs, backing up the old one (component-owned)</td></tr>
+<tr><td>Per-agent home</td><td><code>$ZAX_DEMO_HOME</code>, default the hidden <code>~/.ai-broker</code> (legacy <code>~/zax-demo</code> is migrated on first run)</td><td>Rendered at bootstrap; holds credentials, logs, and the <code>.llm_upstream</code> / <code>.mcp_timeout</code> restore snapshots</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Demos override <code>cloud: dev</code> in the per-agent <code>init.yaml</code> so the shipped default stays production-safe. The dev tenant's OIDC issuer is <code>demotenant.oneui.zsloginalpha.net</code> with the callback on <code>127.0.0.1:8765</code>.</p>
+
+<div class="callout note">
+  <span class="lbl">TLS trust and how the agent authenticates</span>
+  <p>Transport to the dev/private gateway is <strong>server-authenticated TLS</strong>: the gateway presents a leaf chaining to the private <em>Zscaler Agentic Root CA</em> (<code>config/ZaxDevRoot.crt</code>), which the SDK adds on top of the native / webpki roots — without it a bare client fails the handshake with unknown-issuer. Public hosts (<code>api.anthropic.com</code>, the prod endpoints) validate against the native store. The loader trusts <em>every</em> <code>config/*.crt</code>, plus an optional <code>forwarding.ca_bundle</code> PEM path (<code>null</code> by default) for an enterprise CA — so <code>ZaxDevRoot.crt</code> is the only cert file shipped today, but not the only trust anchor in play.</p>
+  <p>There is <strong>no TLS client certificate — the link is not mTLS</strong>. The agent proves who it is at the application layer: an RFC 9421 HTTP message signature (<code>signature</code> / <code>signature-input</code>) plus the triple JWT in <code>X-ZAX-Authorization</code>. The only private key the broker holds is the P-256 activation keypair in the per-agent home, used for AID activation and request signing, never for TLS. (Diagram 2's gateway leg is labelled accordingly.)</p>
+  <p>⚠️ <strong>Corporate TLS interception breaks the gateway leg but not the control plane.</strong> The symptom is telling: <code>REGISTER</code>/<code>ACTIVATE</code> succeed against <code>api.&lt;cloud&gt;</code> (public roots) while the broker list or a <code>tools/call</code> fails to connect. Diagnose with <code>openssl s_client -connect gateway.&lt;cloud&gt;:443 | openssl x509 -noout -issuer</code> — an issuer like <code>CN=Bad Server Certificate</code> is the inspection layer substituting its rejection cert, and no client-side CA bundle fixes it. Exempt the host or stop the interceptor.</p>
+</div>
+
+<h3>What bootstrap writes into Claude</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Key</th><th>Purpose</th><th>Leg</th></tr></thead>
+<tbody>
+<tr><td rowspan="1" class="mono">~/.claude.json</td><td class="mono">mcpServers.zax</td><td>Code tab spawns the bridge</td><td>MCP</td></tr>
+<tr><td class="mono">claude_desktop_config.json</td><td class="mono">mcpServers.zax</td><td>Classic Desktop registration</td><td>MCP</td></tr>
+<tr><td rowspan="5" class="mono">~/.claude/settings.json</td><td class="mono">allowedMcpServers[zax]</td><td>Allow-list — other user MCP servers are filtered out</td><td>MCP</td></tr>
+<tr><td class="mono">enabled_mcp_tools[mcp__zax]</td><td>Without it the server hangs at "(still connecting)"</td><td>MCP</td></tr>
+<tr><td class="mono">permissions.allow[mcp__zax]</td><td>Auto-approve, no per-tool prompt</td><td>MCP</td></tr>
+<tr><td class="mono">env.MCP_TIMEOUT = 30000</td><td>Raised so an interactive OIDC spawn isn't killed mid-sign-in</td><td>MCP</td></tr>
+<tr><td class="mono">env.ANTHROPIC_BASE_URL</td><td>Redirects inference to the loopback proxy</td><td><strong>LLM</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The <code>mcpServers.zax</code> entry carries <code>alwaysLoad: true</code> so the Code tab connects it without a manual enable. Every write is preceded by a <code>.bak.&lt;unix_ts&gt;</code> copy, and every <code>ensure_*</code> helper returns a <em>changed</em> boolean so an unchanged run produces no backup and no write. <code>MCP_TIMEOUT</code> is raised only when the existing value is smaller — a larger user setting is respected, and any value we replace is snapshotted to <code>.mcp_timeout</code> so <code>--recover</code> can put the original back rather than dropping the user to Claude's default.</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="rails">Safety rails</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Rail</th><th>Mechanism</th><th>Failure it prevents</th></tr></thead>
+<tbody>
+<tr><td>Parent watchdog</td><td>Thread polling <code>getppid()</code> every 2 s; exits on reparent</td><td>Orphaned bridge/proxy after Claude force-quits — covers the window where a blocking OIDC call means nothing is watching stdin EOF</td></tr>
+<tr><td>stdout discipline</td><td>Child modes log to file; bootstrap logs to stderr</td><td>A log line corrupting the JSON-RPC stream</td></tr>
+<tr><td>Loop guard</td><td>Upstream can never equal the proxy origin</td><td>Proxy forwarding to itself</td></tr>
+<tr><td>Cleartext guard</td><td><code>upstream_is_safe()</code></td><td>Inference leaving over plaintext to an off-host address</td></tr>
+<tr><td>Backup-before-write</td><td><code>.bak.&lt;ts&gt;</code> on every mutation</td><td>Unrecoverable config loss</td></tr>
+<tr><td>Graceful child stop</td><td>SIGTERM, 300 ms grace, then kill</td><td>Port 8788 held by a zombie</td></tr>
+<tr><td>Preflight diagnostics</td><td>One-shot config audit into <code>logs/zax.log</code></td><td>Silent misconfiguration — a shared install is diagnosable from the log alone</td></tr>
+<tr><td>No-clobber JSONC upsert</td><td><code>upsert_mcp_server_strict</code> errors if a present file isn't strict JSON</td><td>Silently overwriting a comment-carrying Zed / OpenCode config from an empty doc</td></tr>
+<tr><td>Local MITM CA hygiene</td><td>CA key written <code>0600</code>; agent trust scoped to <code>NODE_EXTRA_CA_CERTS</code>, not the OS store; removed by <code>--recover</code></td><td>A broad, lingering trust anchor from the forward-proxy leg</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The preflight block is worth calling out as a design choice rather than a nicety: it validates all four config files, warns when <code>zax.command</code> doesn't exist on disk or when <code>ZAX_DEMO_HOME</code> disagrees with the home actually loaded, and tails Claude Desktop's own <code>main.log</code> for MCP-relevant lines. It never fails the bridge.</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="verify">Live verification &amp; test log</h2>
+
+<p>The Codex/OpenAI LLM leg was exercised end-to-end on a dev Mac. The decisive run was <strong>2026-08-13</strong>: with Zscaler Client Connector stopped and a real OpenAI key, a request through the broker returned a genuine model completion — a real <code>200</code> through the gateway.</p>
+
+<div class="callout note">
+  <span class="lbl">✓ Verified end-to-end — 2026-08-13</span>
+  <p>A request sent through the broker returned a genuine <code>gpt-5.4-mini</code> completion. The broker log recorded <code class="mono">[forward] POST https://api.openai.com/v1/responses → gateway=gateway.zsagenticdev.ai:443</code> then <code class="mono">[llm] POST /v1/responses -&gt; 200</code>. The full client chain — OIDC → REGISTER → ACTIVATE → token-exchange → RFC&nbsp;9421-signed forward — is confirmed against the live gateway. (OIDC identity <code>umesh@demotenant…</code>; agent <code>1cffd6be-…</code>, approved and active.)</p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Probe</th><th>Endpoint · model</th><th>Result</th><th>Reading</th></tr></thead>
+<tbody>
+<tr><td>No key <span class="mono">(ZCC off)</span></td><td><code>/v1/chat/completions</code></td><td><code>401</code> — OpenAI "no API key"</td><td>Reaches OpenAI through the gateway; the gateway forwards the caller's auth and injects no key of its own.</td></tr>
+<tr><td>Real key <span class="mono">(ZCC off)</span></td><td><code>/v1/chat/completions</code> · <code>gpt-4o-mini</code></td><td><code>429</code> — <code>insufficient_quota</code></td><td>OpenAI billing on that specific model — <em>not</em> a broker result.</td></tr>
+<tr><td>Real key <span class="mono">(ZCC off)</span></td><td><code>/v1/responses</code> · <code>gpt-5.4-mini</code></td><td><strong><code>200</code> — real completion</strong></td><td>Full success: broker → gateway → OpenAI.</td></tr>
+<tr><td>Any probe <span class="mono">(ZCC on)</span></td><td>—</td><td><code>502</code> / <code>403</code> block</td><td>ZCC TLS-intercepts the gateway host — test invalid, not a broker result.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><strong>Correction to earlier drafts.</strong> A first run recorded an HTTP&nbsp;<code>403</code> "Zscaler block page" and attributed it to <code>intersected_caps=[]</code> at the gateway. Re-testing with ZCC stopped showed that was a misattribution: the block came from ZCC intercepting the gateway hostname (a synthetic <em>Bad Server Certificate</em> TLS deny, or an HTTP block page), not from the gateway enforcing capabilities. The <em>same</em> empty-caps token returned a <code>200</code> once ZCC was out of the path — so empty caps did <strong>not</strong> block forwarding.</p>
+
+<h3>Reproduce it</h3>
+
+<p>This exact sequence is codified in <code>ai-broker/scripts/verify-llm-gateway.sh</code> (sourcing the step-harness <code>common.sh</code>): it runs the ZCC preflight, starts the proxy, sends the no-key and — when <code>OPENAI_API_KEY</code> is set — keyed probes, and prints the broker's forward/status lines. The key is read from the environment and kept out of <code>ps</code>/logs. The manual steps below are the same thing, spelled out:</p>
+
+<pre><code># Build (from the ai-protect repo root)
+cargo build -p ai-broker-mon
+
+# Prerequisite — confirm the gateway host is NOT being TLS-intercepted by ZCC
+echo | openssl s_client -connect gateway.zsagenticdev.ai:443 \
+     -servername gateway.zsagenticdev.ai 2&gt;/dev/null | openssl x509 -noout -issuer
+#   ZCC off → issuer=CN=Zscaler Agentic Root CA          (real cert — test valid)
+#   ZCC on  → issuer=CN="Bad Server Certificate ..."     (intercepted → stop ZCC)
+
+# Run the LLM leg as a localhost proxy for the OpenAI/Codex provider
+ZAX_DEMO_HOME="$HOME/.ai-broker" \
+  target/debug/ai-broker-mon --llm-proxy --upstream https://api.openai.com --port 8789
+#   six-stage init runs; a stale cached JWT triggers an interactive OIDC browser login
+
+# The proxy terminates TLS with a locally-minted leaf (mitm.rs's CA) and gates every
+# request on a per-install token as the leading path segment — read it once the
+# token file appears (it's written just before the proxy starts listening):
+TOKEN="$(cat "$HOME/.ai-broker/llm-proxy.token")"
+PROXY="https://127.0.0.1:8789/$TOKEN"
+
+# Probe 1 — no key: proves the request reaches the provider through the gateway.
+# -k skips verifying our own freshly-minted, self-signed local CA (fine here; pass
+# --cacert "$HOME/.ai-broker/mitm-ca/mitm-ca-cert.pem" instead for a stricter check).
+curl -sSk -X POST "$PROXY/v1/chat/completions" \
+     -H 'content-type: application/json' \
+     -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"ping"}]}' \
+     -w '\nHTTP %{http_code}\n'
+
+# Probe 2 — real key: the key rides the Authorization header, forwarded UNCHANGED to the
+# provider; the ZAX identity is layered on separately (X-ZAX-Authorization + RFC 9421 sig)
+read -rs OPENAI_API_KEY &amp;&amp; export OPENAI_API_KEY       # prompt without echo / no shell history
+curl -sSk "$PROXY/v1/responses" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer $OPENAI_API_KEY" \
+     -d '{"model":"gpt-5.4-mini","input":"write a haiku about ai","store":true}' \
+     -w '\nHTTP %{http_code}\n'
+unset OPENAI_API_KEY
+
+# Watch the broker's own view (forward target + status)
+tail -f ~/.ai-broker/logs/zax.log
+#   [forward] POST https://api.openai.com/v1/responses → gateway=gateway.zsagenticdev.ai:443
+#   [llm]     POST /v1/responses -&gt; 200</code></pre>
+
+<div class="callout warn">
+  <span class="lbl">Prerequisite — shut off ZCC for any Optimus test</span>
+  <p>Zscaler Client Connector intercepts the gateway host and makes the broker's request fail misleadingly (<code>502</code> on a TLS deny cert, or an HTTP <code>403</code> block page) whether or not the broker works. Stop ZCC — or allow-list the gateway host — before testing, and confirm with the <code>openssl</code> cert check above (real issuer = <code>Zscaler Agentic Root CA</code>).</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">Open — what do the capabilities gate, then?</span>
+  <p>Forwarding succeeds with <code>intersected_caps=[]</code>, so caps do not gate basic LLM forwarding on the dev gateway. Either enforcement is permissive in dev, or caps gate governance (prompt inspection / policy / logging) rather than transport — in which case traffic may be <em>relayed but not brokered</em> when caps are empty. Confirm with the gateway/dashboard team (<a href="#open">Open issue 8</a>).</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="daemon">Daemon integration</h2>
+
+<p>The warden reaches the broker through one subscriber, <code>src/subscribers/ai_broker_launch.rs</code>, on the <code>settings.received</code> trigger — the same frame <code>settings_apply</code> consumes. The <code>ai_broker</code> setting is object-valued, matching the <code>net_egress</code> and <code>scan_governor</code> precedent.</p>
+
+<figure>
+<svg viewBox="0 0 900 420" role="img" aria-label="Daemon reconcile flowchart">
+  <defs>
+    <marker id="f1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,1 L8,4.5 L0,8 z" fill="var(--box-line)"/>
+    </marker>
+  </defs>
+
+  <rect x="330" y="16" width="240" height="46" rx="23" fill="var(--panel2)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="450" y="38" font-size="12.5" font-weight="700" text-anchor="middle" fill="var(--fg)">settings.received</text>
+  <text x="450" y="53" font-size="10" text-anchor="middle" fill="var(--faint)">republished by the heartbeat</text>
+
+  <line x1="450" y1="62" x2="450" y2="86" stroke="var(--box-line)" stroke-width="1.6" marker-end="url(#f1)"/>
+
+  <path d="M450,88 L604,132 L450,176 L296,132 z" fill="var(--box)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="450" y="128" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--fg)">settings.ai_broker</text>
+  <text x="450" y="145" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--fg)">present?</text>
+
+  <line x1="604" y1="132" x2="700" y2="132" stroke="var(--box-line)" stroke-width="1.6" marker-end="url(#f1)"/>
+  <text x="640" y="124" font-size="10.5" font-weight="700" fill="var(--muted)">no</text>
+  <rect x="702" y="110" width="182" height="46" rx="9" fill="var(--panel2)" stroke="var(--box-line)"/>
+  <text x="793" y="130" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--fg)">return — no-op</text>
+  <text x="793" y="146" font-size="9.5" text-anchor="middle" fill="var(--faint)">empty frame is not authoritative</text>
+
+  <line x1="450" y1="176" x2="450" y2="202" stroke="var(--box-line)" stroke-width="1.6" marker-end="url(#f1)"/>
+  <text x="462" y="194" font-size="10.5" font-weight="700" fill="var(--muted)">yes</text>
+
+  <rect x="316" y="204" width="268" height="42" rx="9" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text x="450" y="222" font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--fg)">reap child if it already exited</text>
+  <text x="450" y="238" font-size="9.5" text-anchor="middle" fill="var(--faint)">so a crashed broker is re-spawned below</text>
+
+  <line x1="450" y1="246" x2="450" y2="272" stroke="var(--box-line)" stroke-width="1.6" marker-end="url(#f1)"/>
+
+  <text x="450" y="288" font-size="11" font-weight="700" text-anchor="middle" fill="var(--muted)">match (enabled, running)</text>
+
+  <rect x="40" y="304" width="186" height="80" rx="9" fill="var(--green-soft)" stroke="var(--green)" stroke-width="1.5"/>
+  <text x="133" y="328" font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--green)">(true, false)</text>
+  <text x="133" y="348" font-size="11" text-anchor="middle" fill="var(--fg)">spawn ai-broker-mon</text>
+  <text x="133" y="366" font-size="9.5" text-anchor="middle" fill="var(--faint)">from the daemon's own dir</text>
+
+  <rect x="256" y="304" width="186" height="80" rx="9" fill="var(--red-soft)" stroke="var(--red)" stroke-width="1.5"/>
+  <text x="349" y="328" font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--red)">(false, true)</text>
+  <text x="349" y="348" font-size="11" text-anchor="middle" fill="var(--fg)">kill + reap</text>
+  <text x="349" y="366" font-size="9.5" text-anchor="middle" fill="var(--faint)">TODO: graceful SIGTERM first</text>
+
+  <rect x="472" y="304" width="186" height="80" rx="9" fill="var(--panel2)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="565" y="328" font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--muted)">otherwise</text>
+  <text x="565" y="348" font-size="11" text-anchor="middle" fill="var(--fg)">no-op</text>
+  <text x="565" y="366" font-size="9.5" text-anchor="middle" fill="var(--faint)">already in desired state</text>
+
+  <rect x="688" y="304" width="196" height="80" rx="9" fill="var(--amber-soft)" stroke="var(--amber)" stroke-width="1.5"/>
+  <text x="786" y="326" font-size="10.5" font-weight="700" text-anchor="middle" fill="var(--amber)">state held in</text>
+  <text x="786" y="344" font-size="10" text-anchor="middle" fill="var(--fg)" class="mono">OnceLock&lt;Mutex&lt;Option&lt;Child&gt;&gt;&gt;</text>
+  <text x="786" y="364" font-size="9.5" text-anchor="middle" fill="var(--faint)">→ becomes a per-session map</text>
+
+  <line x1="380" y1="290" x2="150" y2="302" stroke="var(--box-line)" stroke-width="1.4" marker-end="url(#f1)"/>
+  <line x1="430" y1="292" x2="352" y2="302" stroke="var(--box-line)" stroke-width="1.4" marker-end="url(#f1)"/>
+  <line x1="480" y1="292" x2="556" y2="302" stroke="var(--box-line)" stroke-width="1.4" marker-end="url(#f1)"/>
+
+  <text x="450" y="408" font-size="10.5" text-anchor="middle" fill="var(--faint)">DeliveryMode::Sync · idempotent — reconciled on every frame</text>
+</svg>
+<figcaption><strong>Diagram 5 — Reconcile flow.</strong> An absent <code>ai_broker</code> key leaves current state untouched, matching net_egress's "a degenerate empty frame is not an authoritative snapshot" rule.</figcaption>
+</figure>
+
+<h3>The control plane — as built</h3>
+<p>Reconcile only starts the process; the integration proper runs over a <strong>Unix control socket</strong> (newline-JSON, contract in <code>ai-broker/mon/src/control/protocol.rs</code>). On a successful spawn the subscriber drives the following off-thread (start_up may block on OIDC, so it must not stall the settings tick):</p>
+<ul>
+  <li><strong>start_up</strong> (<code>control_handshake</code>) — passes the bound-user identity + per-user home + the ZAX credential (from <code>identity::zax_user_credential::fetch</code>, a stub returning "unavailable" today, so the broker falls back to refresh-token → OIDC).</li>
+  <li><strong>register_agent × N</strong> (<code>push_discovered_agents</code>) — ai-protect's <em>real</em> <code>scan_inventory()</code> mapped to broker ids (<code>client_label_to_broker_id</code>, incl. <code>vscode → copilot</code>) and pushed; re-fired on <code>agentcfg.rescan</code> / <code>inventory.rescan</code> / the periodic scan tick. The broker filters (default: codex) and dedups.</li>
+  <li><strong>credential-request watcher</strong> — polls the broker's <code>credential-request</code> flag; on a near-expiry touch it fetches + pushes a fresh credential (<code>push_credential</code>).</li>
+  <li><strong>config-staging apply watcher</strong> — sweeps each user's <code>~/.ai-broker/config-staging/</code> and applies the broker's staged config ZIPs <strong>as the owning OS user</strong> (<code>write_atomic_under</code> + fchown), so ai-protect is the single writer of agent config.</li>
+</ul>
+<p>Because the broker crate is kept out of the daemon build graph, the subscriber can't link <code>protocol.rs</code> — it <strong>hand-mirrors the same JSON</strong>. Supporting cast: <code>settings_store</code> (the <code>ai_broker.enabled</code> toggle), <code>triggers/registry</code> (subscriber registration), <code>bound_user</code> + <code>identity/zax_user_credential</code> (identity / credential source), <code>identity/home</code> + <code>utils/atomic_write</code> (per-user, owner-scoped applies), and <code>utils/discovery</code> (the inventory scan). So the ai-protect side is one hub module (<code>ai_broker_launch.rs</code>) plus this cast — see the integration note's "ai-protect side — as built".</p>
+
+<div class="callout warn">
+  <span class="lbl">Remaining blockers before this ships</span>
+  <ol style="margin:8px 0 0">
+    <li><strong>Run as the bound user.</strong> The daemon is root/LocalSystem; the broker edits <code>~/.claude/settings.json</code>, binds loopback and launches GUI apps. It must run in the logged-on user's session — per-session on multi-user hosts. Privilege drop is platform-specific.</li>
+    <li><strong>Credential source.</strong> The identity handoff is now <em>wired</em> — <code>start_up</code> carries <code>user_jwt</code> / <code>refresh_token</code> so the SDK can skip interactive OIDC (a root daemon can't open a browser). What's missing is the <em>source</em>: <code>identity::zax_user_credential::fetch</code> is a stub returning "unavailable", so the broker still falls back to refresh-token → OIDC. Live testing surfaced two IdP/gateway-side gaps too: <code>offline_access</code> must be enabled on the <code>zax.client</code> OIDC client before a refresh token is issued (the code now requests it only when advertised), and <code>codex</code> must be added to Vector's allowed frameworks before the proxy can onboard (register currently 400s).</li>
+    <li><strong>Per-user home.</strong> Point <code>ZAX_DEMO_HOME</code> at the bound user's <code>~/.ai-broker</code> rather than the daemon's. (The subscriber's TODO comment still writes the old <code>~/zax-demo</code> — stale relative to the current default.)</li>
+  </ol>
+  <p style="margin-top:10px">As written it spawns in the daemon's own context — workable for a rootless dev run, wrong for production. The broker crates now build and test clean in isolation (105 tests green), but the subscriber itself lives in the daemon crate, which still needs the private <code>ai-types</code> dependency to compile — so it isn't exercised where that dep is unavailable.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="open">Open issues</h2>
+
+<div class="callout open">
+  <span class="lbl">1 · The LLM leg cannot currently be opted out of</span>
+  <p>Bootstrap writes <code>ANTHROPIC_BASE_URL</code> into <strong><code>~/.claude/settings.json</code></strong> — the <em>user-level</em> file shared with the Claude Code CLI. Testing MCP brokering therefore also redirects every terminal Claude session's inference through the proxy.</p>
+  <p>There is no flag for this today. Options: add <code>--no-llm</code>, skip <code>ensure_env_base_url()</code>, or run bootstrap under a throwaway <code>HOME</code>. Worth deciding <em>before</em> the first run, since the write backs up and then overwrites.</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">2 · An empty tenant catalog makes the test inconclusive</span>
+  <p>Upstream MCP servers come from <code>list_brokers()</code> against vector. If the dev tenant's broker catalog is empty the bridge starts cleanly, advertises zero tools, and proves nothing. Confirm the catalog is populated before treating a run as a pass.</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">3 · Registration is not locally reversible</span>
+  <p><code>sdk_init()</code> performs registration/activation against the dev registry, minting a server-side agent identity. Because <code>force_reauth()</code> wipes the sidecar every bootstrap, each run re-registers. No amount of local cleanup undoes this — the dev tenant accumulates records.</p>
+  <p>And no <code>(agent_id, release_id)</code> handle is persisted, so every <em>bridge spawn</em> re-runs REGISTER too — harmless while vector is idempotent per agent (same <code>agent_id</code>, fresh <code>registration_id</code>), but a pending-approval window would multiply pending agents.</p>
+</div>
+
+<div class="callout note">
+  <span class="lbl">4 · Teardown — resolved since the first draft</span>
+  <p>The earlier gap (no uninstall or restore mode) is closed: reversal is now the built-in <code>--recover</code> mode described below, which replaced the external <code>claude-recover.py</code>. It still cannot undo the tenant-side registration (issue 3).</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">5 · Config is written before brokering is proven</span>
+  <p>Bootstrap patches <code>settings.json</code> (step 5) but doesn't reach <code>sdk_init()</code> / OIDC until step 7. A failure in between exits with <code>ANTHROPIC_BASE_URL</code> pointing at a proxy that never started — Claude Code broken until <code>--recover</code>. The fix is to gate the base-URL flip on <code>wait_for_llm_proxy</code> succeeding; the MCP registration writes are harmless by comparison.</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">6 · The bridge blocks on the whole of sdk_init before answering "initialize"</span>
+  <p>Claude allows 30 s (<code>MCP_TIMEOUT</code>); anything that makes stages 2–5 slower shows up as a failed MCP server. The frequent trigger is a stale sidecar → interactive OIDC: the cached JWT lives ~24 h and is treated stale 300 s early, so roughly once a day a Claude-spawned bridge opens a browser. Measured over 17 round-trips, 14 completed in 0.16–0.63 s (the IdP cookie was still valid — browser opens, redirects, nobody notices), but 3 needed a human and took 13.6 / 16.1 / 16.6 s; add MFA or an unattended machine and the budget is gone.</p>
+  <p>One fix covers it: answer <code>initialize</code> immediately with zero tools, run <code>sdk_init()</code> in the background, then push <code>notifications/tools/list_changed</code> when brokering comes up (needs <code>capabilities.tools.listChanged</code>, not yet advertised). Moot in production, where the harness supplies <code>AID_USER_JWT</code>.</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">7 · The LLM leg has no fail-open / fail-closed policy</span>
+  <p>If brokering is unavailable the proxy simply fails. Whether it should fall through to the captured upstream unbrokered or refuse outright is a product decision — the daemon already treats this class as an explicit tenant setting (<code>net_egress.fail_closed</code>).</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">8 · Capability semantics — what does <code>intersected_caps</code> gate?</span>
+  <p>token-exchange returns <code>intersected_caps=[]</code>, yet LLM forwarding still succeeds end-to-end — a real <code>200</code> through the gateway on 2026-08-13 (<a href="#verify">Live verification</a>). So empty caps is <em>not</em> the blocker earlier drafts assumed; that block was ZCC intercepting the gateway host. Open question for the gateway/dashboard team: are caps unenforced on the forward path in dev, or do they gate governance (inspection / policy / logging) rather than transport — i.e. is traffic relayed-but-not-brokered when caps are empty? Gateway/dashboard-side; no ai-broker change.</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">9 · Forward-proxy env-injection for user-launched CLIs is unsolved</span>
+  <p>Nothing sets <code>HTTPS_PROXY</code> + <code>NODE_EXTRA_CA_CERTS</code> for a CLI the user starts in their own shell. Options: a shell-profile shim, a wrapper launcher, or ai-broker launching the CLI. A product-architecture decision, not just wiring. Until then the proxy only logs the env each agent needs. Related: HTTP/2 interception (ALPN pins h1 today).</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">10 · Codex LLM leg is gated; Gemini has no clean base-URL knob</span>
+  <p>Codex's config-write is verified against a real config; flipping <code>supports_llm_base_url=true</code> needs one live-Codex check of the redirect + <code>wire_api</code> (blocked on issue 8). Gemini's OAuth Code-Assist path has no base-URL knob, so it rides the forward-proxy leg with the other knob-less agents.</p>
+</div>
+
+<div class="callout open">
+  <span class="lbl">11 · Windows host-integration hooks are unimplemented</span>
+  <p>The portable core runs on Windows, but the macOS-only edges (see <a href="#platforms">Platforms</a>) have no Windows counterpart yet: launching the desktop app (<code>open -b</code> → <code>start</code>/<code>ShellExecute</code>), the parent-orphan watchdog (<code>getppid</code> → job object / parent-handle wait), <code>--recover</code> process teardown (<code>pgrep</code>/signals → <code>taskkill</code>/Win32), the classic Claude config path (<code>~/Library/…</code> → <code>%APPDATA%\Claude\</code>), and the local MITM CA key perms (<code>chmod 0600</code> → NTFS ACL). Each is a bounded, <code>cfg</code>-gated edge — not a second port — but until they land, a Windows run bootstraps and brokers yet can't auto-launch the app, self-supervise on reparent, or fully tear down.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="recover">Recovery path</h2>
+
+<p><code>ai-broker-mon --recover</code> reverses the bootstrap's edits — the teardown the other three modes lack. It began as the external <code>scripts/claude-recover.py</code> (now deleted) and was folded into the binary so one signed artifact both sets up and tears down. The core decision is unchanged: <strong>surgical removal over wholesale restore</strong>, because <code>~/.claude.json</code> is live application state — project history and sessions — not static config. Restoring a 20-minute-old backup of it would lose real work.</p>
+
+<p>Two refinements landed with the port into Rust. <strong>Process teardown runs first</strong>, before any config file is touched: pids are found with <code>pgrep -f ai-broker-mon</code>, confirmed by executable name (<code>ps -o comm=</code>) and with <em>self excluded</em> — since <code>--recover</code> is itself an <code>ai-broker-mon</code> process — then SIGTERM'd, given a 500 ms grace, and SIGKILL'd if they survive. Killing a live proxy up front is what lets the <code>ANTHROPIC_BASE_URL</code> decision below reason about a quiet port rather than misreading its own still-running proxy as someone else's. And the cached-JWT sidecar is now <strong>removed by default</strong> (<code>--keep-credentials</code> opts out), so a recovered machine doesn't carry a stale identity forward.</p>
+
+<figure>
+<svg viewBox="0 0 900 340" role="img" aria-label="Recovery decision flow">
+  <rect x="20" y="20" width="200" height="52" rx="9" fill="var(--panel2)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="120" y="43" font-size="12" font-weight="700" text-anchor="middle" fill="var(--fg)">for each config file</text>
+  <text x="120" y="60" font-size="10" text-anchor="middle" fill="var(--faint)">settings.json first — see note</text>
+
+  <line x1="220" y1="46" x2="264" y2="46" stroke="var(--box-line)" stroke-width="1.6" marker-end="url(#f1)"/>
+
+  <path d="M370,20 L474,46 L370,72 L266,46 z" fill="var(--box)" stroke="var(--box-line)" stroke-width="1.5"/>
+  <text x="370" y="50" font-size="11" font-weight="600" text-anchor="middle" fill="var(--fg)">parses as JSON?</text>
+
+  <line x1="474" y1="46" x2="556" y2="46" stroke="var(--green)" stroke-width="1.6" marker-end="url(#f1)"/>
+  <text x="508" y="38" font-size="10.5" font-weight="700" fill="var(--green)">yes</text>
+  <rect x="558" y="16" width="322" height="60" rx="9" fill="var(--green-soft)" stroke="var(--green)" stroke-width="1.5"/>
+  <text x="719" y="38" font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--fg)">remove the 5 bootstrap keys</text>
+  <text x="719" y="56" font-size="10" text-anchor="middle" fill="var(--muted)">prior MCP_TIMEOUT restored from .mcp_timeout · other keys kept</text>
+  <text x="719" y="70" font-size="10" text-anchor="middle" fill="var(--faint)">snapshot to .pre-recover.&lt;ts&gt;, then atomic write</text>
+
+  <line x1="370" y1="72" x2="370" y2="104" stroke="var(--red)" stroke-width="1.6" marker-end="url(#f1)"/>
+  <text x="382" y="94" font-size="10.5" font-weight="700" fill="var(--red)">no — corrupt</text>
+
+  <rect x="228" y="106" width="284" height="52" rx="9" fill="var(--red-soft)" stroke="var(--red)" stroke-width="1.5"/>
+  <text x="370" y="128" font-size="11.5" font-weight="700" text-anchor="middle" fill="var(--fg)">restore the OLDEST .bak.&lt;ts&gt;</text>
+  <text x="370" y="146" font-size="10" text-anchor="middle" fill="var(--faint)">newest may be polluted · parse first, then re-strip keys</text>
+
+  <line x1="512" y1="132" x2="592" y2="132" stroke="var(--box-line)" stroke-width="1.4" marker-end="url(#f1)"/>
+  <rect x="594" y="108" width="286" height="48" rx="9" fill="var(--panel2)" stroke="var(--box-line)"/>
+  <text x="737" y="128" font-size="10.5" text-anchor="middle" fill="var(--muted)">none present → warn, exit 1, fix by hand</text>
+  <text x="737" y="144" font-size="10.5" text-anchor="middle" fill="var(--muted)">corrupt original kept as .corrupt.&lt;ts&gt;</text>
+
+  <rect x="20" y="184" width="860" height="66" rx="9" fill="var(--amber-soft)" stroke="var(--amber)" stroke-width="1.5"/>
+  <text x="40" y="206" font-size="11" font-weight="700" fill="var(--amber)">ANTHROPIC_BASE_URL — three-way, because a loopback URL might legitimately be yours</text>
+  <text x="40" y="224" font-size="10.5" fill="var(--fg)">ours — or a dead/unowned loopback, even on a different port → reclaim: restore .llm_upstream, or delete the key if it was just the Anthropic default</text>
+  <text x="40" y="240" font-size="10.5" fill="var(--fg)">a live loopback proved to be someone else's → leave alone and warn  ·  a real upstream → untouched</text>
+
+  <rect x="20" y="264" width="422" height="56" rx="9" fill="var(--panel2)" stroke="var(--box-line)"/>
+  <text x="231" y="286" font-size="11" font-weight="700" text-anchor="middle" fill="var(--fg)">FIRST of all: kill stray procs (pgrep+ps, self-excluded), free :8788</text>
+  <text x="231" y="304" font-size="10" text-anchor="middle" fill="var(--faint)">--purge-home / --clean-backups opt-in · sidecar removed unless --keep-credentials</text>
+
+  <rect x="458" y="264" width="422" height="56" rx="9" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text x="669" y="286" font-size="11" font-weight="700" text-anchor="middle" fill="var(--fg)">among configs, settings.json is repaired first</text>
+  <text x="669" y="304" font-size="10" text-anchor="middle" fill="var(--faint)">it reads .llm_upstream / .mcp_timeout, which --purge-home deletes</text>
+</svg>
+<figcaption><strong>Diagram 6 — Recovery decision flow.</strong> Wholesale restore is the fallback, not the default.</figcaption>
+</figure>
+
+<pre><code>ai-broker-mon --recover --dry-run                 # report only; writes nothing
+ai-broker-mon --recover                            # repair (sidecar removed)
+ai-broker-mon --recover --keep-credentials         # repair but keep the cached JWT
+ai-broker-mon --recover --purge-home --clean-backups</code></pre>
+
+<p><code>recover.rs</code> carries 15 unit tests covering the decision points above — a clean machine (no spurious writes), a fully polluted config with unrelated keys preserved, corrupt JSON restored from the older pristine backup, the <code>ANTHROPIC_BASE_URL</code> ownership branches, and the MCP_TIMEOUT restore. It cannot undo the tenant-side registration, and it cannot fix Claude Desktop's own cached UI state — hence the "quit and reopen" instruction it prints.</p>
+
+<p><strong>v2.0 adds a multi-agent step.</strong> Alongside the Claude repair, recover fans out <code>unwire_other_agents()</code> over every installed non-Claude agent, removing the broker's MCP entry via each adapter (honoring <code>--dry-run</code>). Claude keeps its dedicated path because it <em>restores</em> the user's prior <code>ANTHROPIC_BASE_URL</code> / <code>MCP_TIMEOUT</code> rather than merely deleting keys — a distinction the adapters' coarse <code>recover()</code> can't express.</p>
+
+<div class="callout">
+  <span class="lbl">What recovery still can't reach</span>
+  <p>Only the per-agent home is consolidated; backups are not. <code>.bak.&lt;ts&gt;</code> and <code>.pre-recover.&lt;ts&gt;</code> sit <em>beside</em> each file they copy, so a bootstrap-then-recover cycle can leave up to <strong>six files across three directories</strong> outside the state dir. Two consequences: <code>--purge-home</code> only deletes the resolved state dir, so it can't sweep those scattered backups; and <code>--clean-backups</code> covers the three Claude paths but <em>misses</em> <code>init.yaml.bak.&lt;ts&gt;</code> inside the state dir. A user tidying <code>$HOME</code> can delete the very snapshot <code>--recover</code> depends on — which is also why <code>resolve_home</code> keeps reading the legacy <code>~/zax-demo</code> location: a pre-rename install must still surface its <code>.llm_upstream</code>, or recovery would delete <code>ANTHROPIC_BASE_URL</code> instead of restoring it.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="ledger">Decision ledger</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>#</th><th>Decision</th><th>Rationale</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Two workspace members outside the daemon build graph</td><td>Keeps root-privileged attack surface minimal; sidesteps the blocked <code>ai-types</code> dep; matches the ZCC component model</td><td>Settled</td></tr>
+<tr><td>2</td><td>Mono-exe with four modes</td><td>One artifact to sign and ship; self-spawn via canonicalized <code>current_exe()</code></td><td>Settled</td></tr>
+<tr><td>3</td><td>Signed SDK client instead of a monkey-patch</td><td>Rust has no <code>httpx</code> equivalent seam; explicit routing is auditable</td><td>Settled</td></tr>
+<tr><td>4</td><td>Register <em>as</em> Claude Desktop</td><td>Policy is about the governed app, not the relay</td><td>Settled</td></tr>
+<tr><td>5</td><td>Hand-rolled stdio JSON-RPC server</td><td>No MCP server crate exists for Rust</td><td>Settled</td></tr>
+<tr><td>6</td><td>Tool errors as <code>isError: true</code> results</td><td>A JSON-RPC error makes Claude discard the whole server</td><td>Settled</td></tr>
+<tr><td>7</td><td>Catalog-driven upstreams via vector <code>list_brokers()</code></td><td>Zscaler owns which brokers a tenant may reach; discovery moved off the gateway (no catalog endpoint) onto vector; local config is a fallback</td><td>Settled</td></tr>
+<tr><td>8</td><td>Credential sidecar shared across modes</td><td>Per-session bridges must never block on a browser</td><td>Settled</td></tr>
+<tr><td>9</td><td>Wipe credentials on every bootstrap</td><td>Deterministic demo start — at the cost of re-registration each run</td><td>Revisit</td></tr>
+<tr><td>10</td><td><code>ai_broker</code> as an object-valued setting</td><td>Consistent with <code>net_egress</code> / <code>scan_governor</code>; room to grow beyond a bool</td><td>Settled</td></tr>
+<tr><td>11</td><td>Absent key ⇒ no-op, not "disabled"</td><td>A degenerate frame must not silently stop enforcement</td><td>Settled</td></tr>
+<tr><td>12</td><td>LLM redirect written to user-level settings</td><td>Simplest wiring — but couples the two legs</td><td><strong>Open — see <a href="#open">Open issue 1</a></strong></td></tr>
+<tr><td>13</td><td>Recovery folded into the binary as <code>--recover</code></td><td>One signed artifact both sets up and tears down; replaced the external <code>claude-recover.py</code></td><td>Settled</td></tr>
+<tr><td>14</td><td>Per-agent <code>AgentAdapter</code> seam driving bootstrap/recover</td><td>One place per agent for detect + config-surface + wire/unwire; config shapes mirror the discovery schema</td><td>Settled</td></tr>
+<tr><td>15</td><td>Capability vs enablement (<code>ENABLED_AGENTS</code> = Claude/Gemini/Codex/Copilot)</td><td>Ship code for all fourteen, wire only the priority four; enabling more is data, not code</td><td>Settled</td></tr>
+<tr><td>16</td><td>Provider-agnostic LLM proxy (<code>--upstream</code> / <code>--port</code>)</td><td>The transport already signs+routes any upstream; only defaults were Anthropic-specific</td><td>Settled</td></tr>
+<tr><td>17</td><td>Forward proxy = <em>local</em> CONNECT-MITM, not a relay to Optimus's forward face</td><td>Optimus's forward auth is a static token → a relay drops per-user identity; local MITM re-signs</td><td>Settled</td></tr>
+<tr><td>18</td><td><code>toml_edit = "0.25"</code> for the TOML adapters</td><td>0.22 collides in-band with the UI crate's pinned <code>toml_datetime</code>; 0.25 uses the 1.x band already in the lock</td><td>Settled</td></tr>
+<tr><td>19</td><td>Codex/Devin LLM legs shipped behind gated capability flags</td><td>Config-write verified, but the redirect/<code>wire_api</code> is unverified live — don't auto-wire until confirmed</td><td><strong>Open — see <a href="#verify">Live verification</a></strong></td></tr>
+<tr><td>20</td><td>User-JWT expiry strategy — interactive OIDC vs <code>AID_USER_JWT</code> handoff vs refresh-token self-renewal</td><td>Same problem (survive the ~24&nbsp;h expiry with no browser) from opposite ends; the user JWT does not self-renew today, and the intended prod path is the daemon handoff</td><td><strong>Open — see <a href="#ident">Identity, auth &amp; credentials</a></strong></td></tr>
+<tr><td>21</td><td>Portable core, per-OS edges — confine OS specifics to <code>cfg</code>-gated host hooks</td><td>The data path is identical on Mac &amp; Windows; only launch/elevation/supervision/key-perms differ, so "add Windows" is a bounded edge set, not a second port</td><td>Settled (Windows edges are TODO — see <a href="#platforms">Platforms</a> · issue&nbsp;11)</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="history">Version history</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Version</th><th>Date</th><th>Summary</th></tr></thead>
+<tbody>
+<tr><td><strong>2.7</strong></td><td>14 Aug 2026</td><td>Cross-referenced the new <code>ai-broker/scripts/verify-llm-gateway.sh</code> from the <a href="#verify">Live verification</a> reproduce steps.</td></tr>
+<tr><td>2.6</td><td>14 Aug 2026</td><td>Rebuilt <a href="#verify">Live verification</a> as a test log: recorded the end-to-end <code>200</code> through the gateway (ZCC off), a results table, and the reproducible commands; reframed <a href="#open">Open issue 8</a> from "caps grant blocks brokering" to "caps semantics are an open question" now that empty caps demonstrably don't block forwarding.</td></tr>
+<tr><td>2.5</td><td>12 Aug 2026</td><td>Auto-numbered the sections (CSS counter, matching the contents list).</td></tr>
+<tr><td>2.4</td><td>12 Aug 2026</td><td>Recorded the identity-granularity nuance behind <code>intersected_caps</code> — caps are carried per-instance/per-user, while the admin grant they're intersected against is server-side and its scope (instance vs agent-type) is unconfirmed from the broker code (§<a href="#ident">Identity, auth &amp; credentials</a>).</td></tr>
+<tr><td>2.3</td><td>12 Aug 2026</td><td>Added a <a href="#per-agent">Per-agent integration</a> section — a separate subsection for each of the fourteen agents (config surface · MCP shape · LLM mechanism · enablement) — so the design isn't Claude-centric.</td></tr>
+<tr><td>2.2</td><td>12 Aug 2026</td><td>Made the Mac + Windows scope explicit: new <a href="#platforms">Platforms</a> section (portable core vs per-OS host hooks, with the Windows gaps), open issue&nbsp;#11, and decision-ledger row&nbsp;#21.</td></tr>
+<tr><td>2.1</td><td>12 Aug 2026</td><td>Added the <a href="#ident">credential-renewal</a> analysis — three tokens (user / instance / triple), what renews each, and whether the user JWT can self-renew — plus decision-ledger row&nbsp;#20.</td></tr>
+<tr><td>2.0</td><td>11 Aug 2026</td><td><strong>Beyond Claude.</strong> Per-agent <a href="#agents">adapter model</a> (fourteen agents) + capability-vs-enablement; the <a href="#llm">multi-provider LLM leg</a> incl. the CONNECT-MITM forward proxy; the <a href="#ident">identity/auth</a> + <a href="#backends">two-backends</a> sections; and the <a href="#verify">live gateway-capability finding</a>. Consolidates the companion notes <code>docs/ai-broker-work/ai-broker-llm-brokering.md</code> + <code>docs/ai-broker-work/ai-broker-auth.md</code>.</td></tr>
+<tr><td>1.1</td><td>4 Aug 2026</td><td>The Claude-Desktop broker (pre-beyond-Claude), commit <code>052e697</code>: MCP + LLM legs, bootstrap/recover, register-as-Claude identity, config mutations, safety rails, and the daemon subscriber scaffold.</td></tr>
+</tbody>
+</table>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="sources">Sources &amp; verification</h2>
+
+<p>Verified against <code>cargo clippy</code> (sdk + mon clean) and <code>cargo test -p ai-broker-mon</code> (green).</p>
+
+<p><strong>Sources</strong> — <code>ai-broker/mon/src/</code> (main · bootstrap · bridge · llm_leg · forward_proxy · mitm · upstream · paths · common · preflight · recover · sidecar · <code>agents/*</code>), <code>ai-broker/sdk/src/</code> (startup · forwarding/{mcp,llm_proxy} · registration · activation), <code>ai-broker/config/</code>, <code>mon/templates/</code>, and <code>src/subscribers/ai_broker_launch.rs</code> · <code>src/settings_store.rs</code> · <code>src/utils/enrollment.rs</code>.</p>
+
+<p>The companion design notes <code>docs/ai-broker-work/ai-broker-llm-brokering.md</code> and <code>docs/ai-broker-work/ai-broker-auth.md</code> are consolidated into this record. Self-contained — no external assets.</p>
+
+<footer class="doc">
+  Version 2.7 · Umesh Kanitkar · 14 August 2026
+</footer>
+</div>
+</body>
+</html>

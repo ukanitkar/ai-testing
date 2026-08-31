@@ -1,0 +1,1480 @@
+<title>AI Broker Control Plane — Current State</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+  :root{
+    --paper: #EEF1F6;
+    --paper-raised: #F7F9FC;
+    --ink: #12151C;
+    --ink-soft: #4A5265;
+    --line: #B9C3D4;
+    --line-soft: #D3DAE6;
+    --control: #A8631A;
+    --control-strong: #8A4F12;
+    --data: #146B65;
+    --boundary: #B3392C;
+    --radius: 10px;
+    --font-display: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --font-mono: "IBM Plex Mono", "SF Mono", Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper: #10141B;
+      --paper-raised: #161B24;
+      --ink: #E7EAF0;
+      --ink-soft: #9AA5B8;
+      --line: #2E3848;
+      --line-soft: #212936;
+      --control: #E0983F;
+      --control-strong: #F0B266;
+      --data: #3FB3AC;
+      --boundary: #E2645A;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper: #10141B;
+    --paper-raised: #161B24;
+    --ink: #E7EAF0;
+    --ink-soft: #9AA5B8;
+    --line: #2E3848;
+    --line-soft: #212936;
+    --control: #E0983F;
+    --control-strong: #F0B266;
+    --data: #3FB3AC;
+    --boundary: #E2645A;
+  }
+
+  *{ box-sizing: border-box; }
+  body{
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16.5px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  a{ color: var(--control-strong); text-decoration-thickness: 1px; }
+  h1,h2,h3{ font-family: var(--font-display); color: var(--ink); text-wrap: balance; margin: 0; }
+  code, .mono{ font-family: var(--font-mono); }
+
+  .shell{
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+    display: grid;
+    grid-template-columns: 248px minmax(0,1fr);
+    gap: 48px;
+    align-items: start;
+  }
+  @media (max-width: 880px){
+    .shell{ grid-template-columns: 1fr; padding: 28px 18px 64px; gap: 28px; }
+  }
+
+  /* ---------- Left rail: diagram index ---------- */
+  .rail{
+    position: sticky;
+    top: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  @media (max-width: 880px){ .rail{ position: static; } }
+
+  .rail-eyebrow{
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .rail-list{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-left: 2px solid var(--line);
+    display: flex;
+    flex-direction: column;
+  }
+  .rail-item{
+    position: relative;
+    padding: 10px 0 10px 18px;
+    font-family: var(--font-display);
+    font-size: 13.5px;
+    line-height: 1.35;
+  }
+  .rail-item::before{
+    content: "";
+    position: absolute;
+    left: -6px; top: 15px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 2px solid var(--line);
+  }
+  .rail-item.current{ color: var(--ink); font-weight: 600; }
+  .rail-item.current::before{ border-color: var(--control); background: var(--control); }
+  .rail-item.built{ color: var(--ink); font-weight: 600; }
+  .rail-item.built::before{ border-color: var(--data); background: var(--data); }
+  .rail-item.built a{ color: inherit; text-decoration: none; }
+  .rail-item.planned{ color: var(--ink-soft); }
+  .rail-num{ font-family: var(--font-mono); font-size: 11px; opacity: .75; margin-right: 4px; }
+  .rail-tag{
+    display: inline-block;
+    margin-top: 3px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+  }
+  .rail-item.current .rail-tag{ border-color: var(--control); color: var(--control-strong); }
+  .rail-item.built .rail-tag{ border-color: var(--data); color: var(--data); }
+
+  .rail-note{
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    border-top: 1px solid var(--line-soft);
+    padding-top: 14px;
+    line-height: 1.5;
+  }
+
+  /* ---------- Main column ---------- */
+  header.doc-head{
+    margin-bottom: 40px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .doc-eyebrow{
+    font-family: var(--font-display);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--control-strong);
+    margin-bottom: 10px;
+  }
+  h1.title{ font-size: clamp(28px, 4vw, 40px); font-weight: 700; letter-spacing: -0.01em; }
+  .dek{
+    font-family: var(--font-body);
+    font-size: 18px;
+    color: var(--ink-soft);
+    margin-top: 12px;
+    max-width: 640px;
+  }
+
+  section{ margin-bottom: 56px; }
+  .diagram-block{
+    margin-bottom: 72px;
+    padding-top: 8px;
+    border-top: 2px solid var(--ink);
+  }
+  .diagram-block:first-of-type{ border-top: none; padding-top: 0; }
+  .diagram-heading{
+    font-size: clamp(22px, 3vw, 28px);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 18px 0 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .dh-num{
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--data);
+    border: 1.5px solid var(--data);
+    border-radius: 7px;
+    padding: 2px 8px;
+  }
+  .diagram-intro{
+    font-size: 17px;
+    color: var(--ink-soft);
+    max-width: 700px;
+    margin-bottom: 32px;
+  }
+  h2.h-section{
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2.h-section::after{
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line-soft);
+  }
+  p{ max-width: 66ch; margin: 0 0 14px; }
+  p:last-child{ margin-bottom: 0; }
+
+  /* who-runs-as-whom */
+  .actor-grid{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0,1fr));
+    gap: 1px;
+    background: var(--line-soft);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  @media (max-width: 720px){ .actor-grid{ grid-template-columns: 1fr; } }
+  .actor{
+    background: var(--paper-raised);
+    padding: 18px 20px;
+  }
+  .actor h3{ font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .actor .who{
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 2px 8px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    color: var(--boundary);
+    border: 1px solid var(--boundary);
+  }
+  .actor.dropped .who{ color: var(--data); border-color: var(--data); }
+  .actor p{ font-size: 14px; color: var(--ink-soft); margin: 0; max-width: none; }
+
+  /* diagram */
+  figure.diagram{ margin: 0; }
+  .diagram-frame{
+    background: var(--paper-raised);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    padding: 20px 8px 8px;
+  }
+  figure.diagram svg{ display: block; width: 100%; height: auto; }
+  figcaption{
+    margin-top: 12px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    max-width: 70ch;
+  }
+  .legend{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 14px;
+    font-family: var(--font-display);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .legend span{ display: inline-flex; align-items: center; gap: 6px; }
+  .swatch{ width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+
+  /* walkthrough */
+  ol.walk{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    counter-reset: step;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  ol.walk > li{
+    counter-increment: step;
+    position: relative;
+    padding-left: 40px;
+  }
+  ol.walk > li::before{
+    content: counter(step);
+    position: absolute;
+    left: 0; top: 1px;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 1.5px solid var(--control);
+    color: var(--control-strong);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ol.walk .step-title{ font-family: var(--font-display); font-weight: 600; font-size: 15px; margin-bottom: 3px; }
+  ol.walk p{ margin: 0; font-size: 15px; }
+  ol.walk .aside{
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    border-left: 2px solid var(--line);
+    padding-left: 10px;
+  }
+
+  /* trigger table */
+  table.trigger-table{ width:100%; border-collapse: collapse; font-size: 14px; }
+  table.trigger-table th{ text-align:left; font-family: var(--font-display); font-size: 11px; letter-spacing:.06em; text-transform:uppercase; color: var(--ink-soft); padding: 0 14px 8px 0; border-bottom: 1px solid var(--line-soft); }
+  table.trigger-table td{ padding: 11px 14px 11px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  table.trigger-table tr:last-child td{ border-bottom: none; }
+  table.trigger-table td.trig{ font-family: var(--font-mono); font-size: 12.5px; }
+  table.trigger-table td.what{ font-size: 13.5px; color: var(--ink-soft); }
+  .pill{ display:inline-flex; align-items:center; gap:5px; font-family: var(--font-mono); font-size:10.5px; letter-spacing:.02em; padding:3px 9px; border-radius:999px; border:1px solid var(--line); white-space:nowrap; }
+  .pill.push{ color: var(--control-strong); border-color: var(--control); }
+  .pill.poll{ color: var(--data); border-color: var(--data); }
+  .pill::before{ content:"●"; font-size:8px; }
+
+  .note-block{
+    border-left: 3px solid var(--line);
+    padding: 2px 18px;
+    margin: 20px 0 0;
+  }
+  .note-block > .nb-title{ font-family: var(--font-display); font-weight:600; font-size: 14px; color: var(--ink); margin-bottom: 4px; }
+  .note-block p{ font-size: 14.5px; }
+  .note-block.warn{ border-color: var(--boundary); }
+
+  .anchor{
+    display: inline-block;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--data);
+    background: var(--paper);
+    border: 1px solid var(--line-soft);
+    border-radius: 5px;
+    padding: 2px 7px;
+  }
+  .anchor::before{ content: "⚲ "; opacity: .7; }
+
+  /* parity table */
+  .tablewrap-plain{ overflow-x: auto; }
+  table.parity-table{ width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.parity-table th{ text-align: left; font-family: var(--font-display); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); padding: 0 14px 10px 0; border-bottom: 2px solid var(--ink); }
+  table.parity-table td{ padding: 12px 14px 12px 0; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  table.parity-table td.mech{ font-family: var(--font-display); font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+  table.parity-table td.seen{ font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft); white-space: nowrap; }
+  table.parity-table tr:last-child td{ border-bottom: none; }
+  .anchor-inline{ display: block; margin-top: 4px; font-family: var(--font-mono); font-size: 10px; color: var(--data); font-weight: 400; }
+
+  /* schema cards */
+  .schema-grid{
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 20px;
+  }
+  @media (max-width: 720px){ .schema-grid{ grid-template-columns: 1fr; } }
+  .schema-card{
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius);
+    background: var(--paper-raised);
+    overflow: hidden;
+  }
+  .schema-card.faded{ opacity: .72; }
+  .schema-card .sc-head{
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .sc-head .name{ font-family: var(--font-mono); font-weight: 600; font-size: 14.5px; }
+  .sc-head .dir{ font-family: var(--font-display); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+  .sc-body{ padding: 14px 18px 18px; }
+  table.fields{ width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.fields th{ text-align: left; font-family: var(--font-display); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); padding: 0 8px 6px 0; border-bottom: 1px solid var(--line-soft); }
+  table.fields td{ padding: 6px 8px 6px 0; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+  table.fields tr:last-child td{ border-bottom: none; }
+  table.fields td.field{ font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; color: var(--ink); }
+  table.fields td.type{ font-family: var(--font-mono); font-size: 11.5px; color: var(--data); white-space: nowrap; }
+  table.fields td.note{ font-size: 12.5px; color: var(--ink-soft); }
+  .sc-example{
+    margin-top: 12px;
+    background: var(--paper);
+    border: 1px solid var(--line-soft);
+    border-radius: 7px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--ink-soft);
+  }
+  .sc-example .k{ color: var(--control-strong); }
+  .sc-example .v{ color: var(--data); }
+
+  /* footer / roadmap teaser */
+  .roadmap-grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 14px;
+  }
+  .rm-card{
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+  }
+  .rm-card .rm-num{ font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); }
+  .rm-card h3{ font-size: 14.5px; margin: 4px 0 6px; }
+  .rm-card p{ font-size: 13px; color: var(--ink-soft); margin: 0; max-width: none; }
+
+  footer{
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line-soft);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+
+<div class="shell">
+
+  <!-- ============ LEFT RAIL — diagram index ============ -->
+  <nav class="rail" aria-label="Diagram index">
+    <div class="rail-eyebrow">Current-state diagram set</div>
+    <ol class="rail-list">
+      <li class="rail-item built">
+        <a href="#d01"><span class="rail-num">01</span>MCP leg — tool-call relay
+        <br><span class="rail-tag">current</span></a>
+      </li>
+      <li class="rail-item built">
+        <a href="#d02"><span class="rail-num">02</span>LLM leg — reverse-proxy inference
+        <br><span class="rail-tag">current</span></a>
+      </li>
+      <li class="rail-item built">
+        <a href="#d03"><span class="rail-num">03</span>Windows ↔ Unix parity map
+        <br><span class="rail-tag">current</span></a>
+      </li>
+      <li class="rail-item built">
+        <a href="#d04"><span class="rail-num">04</span>Full component &amp; trust-boundary map
+        <br><span class="rail-tag">current</span></a>
+      </li>
+      <li class="rail-item built">
+        <a href="#d05"><span class="rail-num">05</span>Can they break each other?
+        <br><span class="rail-tag">current</span></a>
+      </li>
+      <li class="rail-item built">
+        <a href="#d06"><span class="rail-num">06</span>The file protocol (broker.json / status.json)
+        <br><span class="rail-tag">current</span></a>
+      </li>
+      <li class="rail-item built">
+        <a href="#d07"><span class="rail-num">07</span>AI Gateway crate split
+        <br><span class="rail-tag">current</span></a>
+      </li>
+    </ol>
+    <p class="rail-note">Seven diagrams, all describing what actually runs today. The retired designs — the control-socket/named-pipe bootstrap handshake, the credential push message, and the write/stage config-sink duality — are omitted here; see <a href="ai-broker-control-plane.html">ai-broker-control-plane.html</a> for that history plus these same diagrams.</p>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <main>
+    <header class="doc-head">
+      <div class="doc-eyebrow">AI Broker · Control-Plane Reference — Current State</div>
+      <h1 class="title">How ai-protect and the AI Broker talk to each other, today</h1>
+      <p class="dek">Every process, message, and boundary crossing between ai-protect and ai-broker-mon (ai-gateway) as the code exists right now — one mechanism per diagram, sequence, schema, and the code that backs each step. This is the current-state subset of the full control-plane reference: the retired socket-handshake, credential-push, and config write/stage diagrams are left out.</p>
+    </header>
+
+    <section id="d01" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">01</span> MCP leg — the tool-call relay</h2>
+    <p class="diagram-intro">What happens once the agent actually runs, and spawns <code>ai-broker-mon --mcp-server</code> the way its config was wired via ai-protect's <code>ConfigDelta</code> merge (see the file protocol, <a href="#d06">Diagram 06</a>): how it discovers upstream MCP servers, and how one <code>tools/call</code> reaches a real server and comes back.</p>
+
+    <section>
+      <h2 class="h-section">Scope</h2>
+      <p>This is entirely the agent's doing — ai-protect and the daemon are not involved at all once the config is wired. The agent (Codex, say) spawns this relay itself, over stdio, the same way it would spawn any local MCP server. Everything below happens as the console user; there is no privilege boundary in this leg.</p>
+    </section>
+
+    <section>
+      <h2 class="h-section">Who runs as whom</h2>
+      <div class="actor-grid">
+        <div class="actor dropped">
+          <h3>Agent (Codex CLI, etc.)</h3>
+          <span class="who">console user</span>
+          <p>Already running as whoever is using the machine — this leg never touches a privileged process.</p>
+        </div>
+        <div class="actor dropped">
+          <h3>ai-broker-mon --mcp-server</h3>
+          <span class="who">same as the agent</span>
+          <p>A plain child of the agent's own process. No <code>CreateProcessAsUserW</code>, no <code>setuid</code> — it inherits the agent's identity directly, because the agent that spawned it is already the right identity.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="h-section">Sequence</h2>
+      <figure class="diagram">
+        <div class="diagram-frame">
+          <svg viewBox="0 0 900 620" role="img" aria-label="Sequence diagram: an agent spawns ai-broker-mon --mcp-server, which discovers upstream MCP servers from Vector, handshakes each through the ZAX gateway, then relays tools/list and tools/call requests from the agent to the right upstream and back, over signed HTTP through the gateway.">
+            <defs>
+              <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" style="fill:currentColor"/>
+              </marker>
+              <marker id="arrowControl2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" style="fill:var(--control)"/>
+              </marker>
+            </defs>
+
+            <text x="450" y="20" text-anchor="middle" style="font-family:var(--font-display);font-size:11px;font-weight:600;letter-spacing:.06em;fill:var(--ink-soft)">ALL FOUR PARTICIPANTS RUN AS (OR ARE REACHED BY) THE CONSOLE USER — NO PRIVILEGE BOUNDARY IN THIS LEG</text>
+
+            <!-- Vector, passive discovery source -->
+            <rect x="330" y="34" width="180" height="34" rx="6" style="fill:none;stroke:var(--line);stroke-width:1.2;stroke-dasharray:2 3"/>
+            <text x="420" y="56" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;fill:var(--ink-soft)">Vector (registry)</text>
+
+            <!-- lanes -->
+            <rect x="30" y="86" width="150" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="105" y="110" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">Agent (codex)</text>
+            <line x1="105" y1="124" x2="105" y2="600" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <rect x="260" y="86" width="220" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="370" y="110" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ai-broker-mon --mcp-server</text>
+            <line x1="370" y1="124" x2="370" y2="600" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <rect x="600" y="86" width="140" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="670" y="110" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ZAX gateway</text>
+            <line x1="670" y1="124" x2="670" y2="600" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <rect x="770" y="86" width="120" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="830" y="104" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:currentColor">upstream MCP</text>
+            <text x="830" y="117" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">server(s), N of them</text>
+            <line x1="830" y1="124" x2="830" y2="600" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <!-- step 1: spawn -->
+            <circle cx="150" cy="150" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="150" y="154" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">1</text>
+            <text x="230" y="145" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;font-weight:600;fill:currentColor">spawns, stdio pipes wired</text>
+            <line x1="180" y1="150" x2="255" y2="150" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.3"/>
+
+            <!-- step 2: discovery -->
+            <circle cx="330" cy="200" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="330" y="204" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">2</text>
+            <line x1="370" y1="192" x2="400" y2="70" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.2;stroke-dasharray:3 3"/>
+            <text x="470" y="200" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;fill:var(--ink-soft)">sdk_init, then list_brokers() — a Vector read, not a gateway call</text>
+
+            <!-- step 3: handshake per upstream -->
+            <circle cx="480" cy="250" r="12" style="fill:var(--paper-raised);stroke:var(--control);stroke-width:1.4"/>
+            <text x="480" y="254" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">3</text>
+            <line x1="480" y1="250" x2="660" y2="250" marker-end="url(#arrowControl2)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="570" y="242" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;fill:var(--control-strong)">initialize, list_tools →</text>
+            <text x="570" y="264" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">per upstream, concurrently, 15s bound each</text>
+            <line x1="740" y1="280" x2="810" y2="280" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="775" y="272" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">→ real server(s)</text>
+
+            <!-- step 4: merge -->
+            <circle cx="480" cy="310" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="480" y="314" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">4</text>
+            <text x="570" y="315" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;fill:currentColor">merge + namespace tools as &lt;server&gt;_&lt;tool&gt; — a failed upstream is dropped, never fatal</text>
+
+            <!-- step 5: agent talks -->
+            <circle cx="150" cy="370" r="12" style="fill:var(--paper-raised);stroke:var(--control);stroke-width:1.4"/>
+            <text x="150" y="374" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">5</text>
+            <line x1="180" y1="370" x2="255" y2="370" marker-end="url(#arrowControl2)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="230" y="362" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:var(--control-strong)">tools/call →</text>
+            <text x="230" y="386" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">newline JSON-RPC on stdin</text>
+
+            <!-- step 6: relay to gateway -->
+            <circle cx="480" cy="420" r="12" style="fill:var(--paper-raised);stroke:var(--control);stroke-width:1.4"/>
+            <text x="480" y="424" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">6</text>
+            <line x1="480" y1="420" x2="660" y2="420" marker-end="url(#arrowControl2)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="570" y="412" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;fill:var(--control-strong)">signed POST → same upstream's session</text>
+
+            <!-- step 7: to real server -->
+            <line x1="740" y1="450" x2="810" y2="450" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.2"/>
+            <line x1="810" y1="480" x2="740" y2="480" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="775" y="442" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">executes the tool</text>
+            <text x="775" y="495" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">← result</text>
+
+            <!-- step 8: back to relay, then agent -->
+            <circle cx="480" cy="520" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="480" y="524" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">8</text>
+            <line x1="655" y1="520" x2="485" y2="520" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="570" y="512" text-anchor="middle" style="font-family:var(--font-display);font-size:11.5px;fill:var(--ink-soft)">← passed through (or {isError:true} on failure)</text>
+
+            <circle cx="150" cy="560" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="150" y="564" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">9</text>
+            <line x1="365" y1="560" x2="182" y2="560" marker-end="url(#arrow2)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="270" y="552" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;fill:currentColor">← reply on stdout — one writer task owns it, so concurrent calls never interleave</text>
+          </svg>
+        </div>
+        <figcaption>Steps 3–8 use the exact same signing mechanism as the LLM leg (RFC 9421 + the triple-JWT <code>X-Zax-Authorization</code> header) — every upstream call is a signed HTTP POST through the ZAX gateway, never a direct connection to the real server.</figcaption>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--control)"></i>a message on the wire (stdio or signed HTTP)</span>
+          <span><i class="swatch" style="background:currentColor;opacity:.5"></i>internal step / plain relay hop</span>
+        </div>
+      </figure>
+    </section>
+
+    <section>
+      <h2 class="h-section">Walkthrough</h2>
+      <ol class="walk">
+        <li>
+          <div class="step-title">The agent spawns the relay itself</div>
+          <p>Codex (or whichever agent) launches <code>ai-broker-mon --mcp-server</code> as a plain stdio subprocess — the same way it would launch any local MCP server, because that's exactly what its config says to do (wired via ai-protect's <code>ConfigDelta</code> merge — see the file protocol, <a href="#d06">Diagram 06</a>). Nothing about this crosses a privilege boundary.</p>
+          <span class="anchor">zax-anchor: mcp-1-spawn — ai-broker/mon/src/bridge.rs</span>
+        </li>
+        <li>
+          <div class="step-title">Discovery: a Vector read, not a gateway call</div>
+          <p>After the same <code>sdk_init</code> pipeline the LLM leg uses (OIDC → register → activate → token-exchange), the relay calls <code>list_brokers</code> — this asks Vector (the registry) which MCP servers this tenant can route to. Each one comes back with its brokered endpoint already rendered; the relay composes nothing itself.</p>
+          <span class="anchor">zax-anchor: mcp-2-list-brokers — ai-broker/mon/src/bridge.rs</span>
+        </li>
+        <li>
+          <div class="step-title">Every upstream handshakes concurrently, and a failure just drops it</div>
+          <p>For each broker, <code>ZaxClientSession::for_broker_url</code> connects (a no-op — streamable HTTP holds no live socket), then sends a signed <code>initialize</code> and <code>list_tools</code>, each bounded to 15 seconds. Total startup is bounded by the slowest upstream, not their sum — and a stalled or failing one is dropped, never fatal to the relay.</p>
+          <span class="anchor">zax-anchor: mcp-3-handshake-upstream — ai-broker/mon/src/bridge.rs</span>
+        </li>
+        <li>
+          <div class="step-title">One flat, namespaced tool list</div>
+          <p>Every connected upstream's tools get merged into one list the agent sees, each renamed <code>&lt;server&gt;_&lt;tool&gt;</code> so two servers can both have a tool called <code>search</code> without colliding. A live VM run found 14 configured upstreams, 11 connected, 233 tools aggregated this way.</p>
+        </li>
+        <li>
+          <div class="step-title">stdin in, one task per request, one writer for stdout</div>
+          <p>The agent's requests arrive as newline-delimited JSON-RPC on stdin. Each line is dispatched onto its own task — so a slow tool call never blocks <code>tools/list</code> behind it — but exactly one task owns writing to stdout, serializing every reply so two concurrent tool calls can never interleave half-written JSON.</p>
+          <span class="anchor">zax-anchor: mcp-4-serve-stdio — ai-broker/mon/src/bridge.rs</span>
+        </li>
+        <li>
+          <div class="step-title">tools/call relays through the gateway, and failures stay inside the result</div>
+          <p>The relay looks up which upstream owns the requested (namespaced) tool, locks that upstream's live session, and sends a signed <code>tools/call</code> POST to the same gateway URL used at handshake — the RFC 9421 signature, the triple-JWT <code>X-Zax-Authorization</code> header, and a fresh <code>x-zax-trace-id</code> go on every call, exactly like the LLM leg. Any failure — timeout, upstream error — becomes <code>{isError: true}</code> in the JSON-RPC <em>result</em>, never a JSON-RPC protocol error, so the agent sees "this tool failed," not "this server crashed."</p>
+          <span class="anchor">zax-anchor: mcp-5-tools-call-relay, mcp-6-signed-post — ai-broker/mon/src/bridge.rs, ai-broker/sdk/src/forwarding/mcp/session.rs</span>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="h-section">Message schema — MCP wire protocol</h2>
+      <p style="margin-bottom:20px">Two layers: newline-JSON-RPC 2.0 on stdio between the agent and the relay (no signing — same machine, same user), and signed streamable-HTTP JSON-RPC 2.0 between the relay and each upstream, through the gateway.</p>
+      <div class="schema-grid">
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">tools/call</span><span class="dir">agent → relay (stdio)</span></div>
+          <div class="sc-body">
+            <div class="sc-example">{<span class="k">"jsonrpc"</span>:<span class="v">"2.0"</span>, <span class="k">"id"</span>:<span class="v">7</span>,
+ <span class="k">"method"</span>:<span class="v">"tools/call"</span>,
+ <span class="k">"params"</span>:{<span class="k">"name"</span>:<span class="v">"zoltan-mcp_list_rules"</span>, <span class="k">"arguments"</span>:{}}}</div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">tools/call</span><span class="dir">relay → gateway (signed HTTP)</span></div>
+          <div class="sc-body">
+            <table class="fields">
+              <tr><th>header</th><th>carries</th></tr>
+              <tr><td class="field">signature, signature-input</td><td class="note">RFC 9421 request signature</td></tr>
+              <tr><td class="field">x-zax-authorization</td><td class="note">the triple-JWT chain</td></tr>
+              <tr><td class="field">mcp-session-id</td><td class="note">continuity after the first response</td></tr>
+              <tr><td class="field">x-zax-trace-id</td><td class="note">fresh UUID per call</td></tr>
+            </table>
+            <p style="font-size:12.5px;margin-top:10px">POSTed to <code>{gateway_url}/{server_id}/mcp</code> — the original (un-namespaced) tool name, unwrapped from the relay's routing table.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    </section> <!-- /d01 -->
+
+    <section id="d02" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">02</span> LLM leg — the reverse-proxy inference call</h2>
+    <p class="diagram-intro">The proxy is already listening — Agent Manager spawns (and renews) it when it applies <code>broker.json</code>; see the file protocol (<a href="#d06">Diagram 06</a>) and the crate split (<a href="#d07">Diagram 07</a>). Here's what happens to one real inference call the agent sends through it — and the sleight of hand at its center: the agent thinks it's talking to <code>api.anthropic.com</code>; the bytes never go there directly.</p>
+
+    <section>
+      <h2 class="h-section">Scope</h2>
+      <p>Covers one request from the agent hitting <code>https://127.0.0.1:&lt;port&gt;/&lt;token&gt;/v1/messages</code> to the response streaming back. The token+TLS gate at the front door is a detail of the proxy's own startup (not covered separately here); this is what happens once a request gets past it.</p>
+    </section>
+
+    <section>
+      <h2 class="h-section">Who runs as whom</h2>
+      <div class="actor-grid">
+        <div class="actor dropped">
+          <h3>Agent</h3>
+          <span class="who">console user</span>
+          <p>Configured to send its LLM calls to the local proxy's origin instead of the provider directly (e.g. <code>ANTHROPIC_BASE_URL</code>). Its own provider credential travels unchanged.</p>
+        </div>
+        <div class="actor dropped">
+          <h3>ai-broker-mon --llm-proxy</h3>
+          <span class="who">console user</span>
+          <p>A child spawned by Agent Manager via the file protocol (<a href="#d06">Diagram 06</a>). Holds one signing context, fixed to one agent + one upstream at spawn time.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="h-section">Sequence</h2>
+      <figure class="diagram">
+        <div class="diagram-frame">
+          <svg viewBox="0 0 900 480" role="img" aria-label="Sequence diagram: an agent's LLM call is TLS+token-gated by the local proxy, forwarded to the SDK's signing client which is told to call the real provider, but the ZaxMiddleware rewrites the destination to the ZAX gateway before sending, carrying the original host in a Host header so the gateway can forward on to the real provider and relay the response back.">
+            <defs>
+              <marker id="arrow3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" style="fill:currentColor"/>
+              </marker>
+              <marker id="arrowControl3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" style="fill:var(--control)"/>
+              </marker>
+            </defs>
+
+            <rect x="20" y="40" width="150" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="95" y="64" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">Agent</text>
+            <line x1="95" y1="78" x2="95" y2="460" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <rect x="245" y="40" width="200" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="345" y="64" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ai-broker-mon --llm-proxy</text>
+            <line x1="345" y1="78" x2="345" y2="460" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <rect x="530" y="40" width="150" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="605" y="64" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ZAX gateway</text>
+            <line x1="605" y1="78" x2="605" y2="460" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <rect x="740" y="40" width="140" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="810" y="59" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:currentColor">real provider</text>
+            <text x="810" y="72" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">api.anthropic.com</text>
+            <line x1="810" y1="78" x2="810" y2="460" style="stroke:currentColor;stroke-width:1;stroke-dasharray:1 4;opacity:.45"/>
+
+            <!-- step 1 -->
+            <circle cx="60" cy="110" r="12" style="fill:var(--paper-raised);stroke:var(--control);stroke-width:1.4"/>
+            <text x="60" y="114" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">1</text>
+            <line x1="95" y1="110" x2="240" y2="110" marker-end="url(#arrowControl3)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="230" y="102" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;fill:var(--control-strong)">POST /&lt;token&gt;/v1/messages</text>
+            <text x="230" y="124" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">its OWN provider credential, unchanged</text>
+
+            <!-- step 2 -->
+            <circle cx="290" cy="160" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="290" y="164" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">2</text>
+            <text x="345" y="165" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;fill:currentColor">TLS terminate, strip + verify the token (401 if wrong)</text>
+
+            <!-- step 3 -->
+            <circle cx="290" cy="200" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="290" y="204" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">3</text>
+            <text x="345" y="205" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;fill:currentColor">builds a plain request to <tspan style="font-family:var(--font-mono)">https://api.anthropic.com/v1/messages</tspan></text>
+
+            <!-- step 4: middleware rewrite -->
+            <circle cx="290" cy="250" r="12" style="fill:var(--paper-raised);stroke:var(--boundary);stroke-width:1.4"/>
+            <text x="290" y="254" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--boundary)">4</text>
+            <text x="450" y="242" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;font-weight:600;fill:var(--boundary)">ZaxMiddleware signs, then REWRITES the destination</text>
+            <text x="450" y="264" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">scheme/host/port → the gateway's; original host kept in the Host header</text>
+
+            <!-- step 5 -->
+            <circle cx="470" cy="300" r="12" style="fill:var(--paper-raised);stroke:var(--control);stroke-width:1.4"/>
+            <text x="470" y="304" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">5</text>
+            <line x1="480" y1="300" x2="525" y2="300" marker-end="url(#arrowControl3)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="500" y="292" text-anchor="middle" style="font-family:var(--font-mono);font-size:10px;font-weight:600;fill:var(--control-strong)"></text>
+            <text x="605" y="292" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">signed POST, Host: api.anthropic.com</text>
+
+            <!-- step 6 -->
+            <line x1="680" y1="330" x2="735" y2="330" marker-end="url(#arrow3)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="708" y="322" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">forwards, per the Host header</text>
+            <line x1="735" y1="360" x2="680" y2="360" marker-end="url(#arrow3)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="708" y="375" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">← real response</text>
+
+            <!-- step 7 -->
+            <circle cx="470" cy="400" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="470" y="404" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">7</text>
+            <line x1="600" y1="400" x2="480" y2="400" marker-end="url(#arrow3)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="540" y="392" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">← relayed back</text>
+
+            <circle cx="290" cy="430" r="12" style="fill:var(--paper-raised);stroke:currentColor;stroke-width:1.3"/>
+            <text x="290" y="434" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600">8</text>
+            <line x1="340" y1="430" x2="100" y2="430" marker-end="url(#arrow3)" style="stroke:currentColor;stroke-width:1.2"/>
+            <text x="220" y="422" text-anchor="middle" style="font-family:var(--font-display);font-size:12px;fill:currentColor">← streamed back, framing headers stripped</text>
+          </svg>
+        </div>
+        <figcaption>The red step is the whole trick: the agent's request is built as if it were going straight to the provider, and only at the last moment — after signing, which covers the <em>original</em> URL — does the scheme/host/port get swapped for the gateway's. The gateway, not the proxy, is what actually leaves the machine.</figcaption>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--control)"></i>signed request/response on the wire</span>
+          <span><i class="swatch" style="background:var(--boundary)"></i>the destination rewrite</span>
+          <span><i class="swatch" style="background:currentColor;opacity:.5"></i>internal step / plain relay hop</span>
+        </div>
+      </figure>
+    </section>
+
+    <section>
+      <h2 class="h-section">Walkthrough</h2>
+      <ol class="walk">
+        <li>
+          <div class="step-title">The agent's own credential travels unchanged</div>
+          <p>Whatever bearer token or API key the agent authenticates to the provider with rides through <code>should_drop_request_header</code> untouched — the ZAX identity is layered on as a separate <code>X-Zax-Authorization</code> header, never mixed with or replacing the provider auth. The broker never reads or mints a provider credential.</p>
+        </li>
+        <li>
+          <div class="step-title">The proxy builds a request to the REAL provider</div>
+          <p><code>llm_proxy::forward</code> constructs a plain <code>reqwest</code> request against <code>{upstream}{path}</code> — e.g. <code>https://api.anthropic.com/v1/messages</code> — on the SDK's signing client. At this point, as far as the code building the request is concerned, that really is where it's going.</p>
+          <span class="anchor">zax-anchor: llm-1-proxy-handler, llm-2-forward — ai-broker/listener/src/llm_leg.rs, ai-broker/sdk/src/forwarding/llm_proxy.rs</span>
+        </li>
+        <li>
+          <div class="step-title">ZaxMiddleware intercepts before anything leaves the process</div>
+          <p>It requires activation to already be complete (a live instance JWT + HMAC key) — refusing immediately with "Stage 2 (activation) not complete" if not — computes the RFC 9421 signature <em>over the original URL</em>, gets a fresh triple JWT, and only then rewrites the request's scheme/host/port to the gateway's. The original host is preserved verbatim in the <code>Host</code> header — a standard reverse-proxy pattern — so the signature covers what the caller actually asked for, not what the wire ends up carrying.</p>
+          <span class="anchor">zax-anchor: llm-3-middleware-rewrite — ai-broker/sdk/src/forwarding/middleware.rs</span>
+        </li>
+        <li>
+          <div class="step-title">Same signing shape as the MCP leg, different rewrite strategy</div>
+          <p>Both legs sign with RFC 9421 + the triple JWT and land at the gateway. The MCP leg (<a href="#d01">Diagram 01</a>) already knows the gateway URL — Vector handed it one per upstream — so it POSTs there directly. The LLM leg doesn't: the agent's config only ever named the real provider, so the middleware has to rewrite the destination in flight rather than being given it up front.</p>
+        </li>
+        <li>
+          <div class="step-title">The response streams back essentially unchanged</div>
+          <p>Framing headers (<code>content-length</code>, <code>transfer-encoding</code>, <code>content-encoding</code>, <code>connection</code>) are stripped and recomputed, but the body streams straight through — this is what lets a streaming completion keep streaming, rather than being buffered whole.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2 class="h-section">Message schema — the rewrite, before and after</h2>
+      <div class="schema-grid">
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">as built</span><span class="dir">proxy → client (pre-middleware)</span></div>
+          <div class="sc-body">
+            <div class="sc-example">POST <span class="v">https://api.anthropic.com/v1/messages</span>
+<span class="k">authorization</span>: Bearer sk-ant-… <span style="opacity:.6">(the agent's own key, untouched)</span>
+<span class="k">content-type</span>: application/json</div>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">as sent</span><span class="dir">client → gateway (post-middleware)</span></div>
+          <div class="sc-body">
+            <div class="sc-example">POST <span class="v">https://&lt;gateway-host&gt;/v1/messages</span>
+<span class="k">host</span>: api.anthropic.com
+<span class="k">authorization</span>: Bearer sk-ant-… <span style="opacity:.6">(unchanged)</span>
+<span class="k">signature-input</span>, <span class="k">signature</span>: RFC 9421
+<span class="k">x-zax-jwt-digest</span>: …
+<span class="k">x-zax-authorization</span>: Bearer &lt;triple JWT&gt;</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    </section> <!-- /d02 -->
+
+    <section id="d03" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">03</span> Windows ↔ Unix parity map</h2>
+    <p class="diagram-intro">Every earlier diagram picked one platform's mechanism and moved on. This is the lookup table for the other one — the places where Windows and Unix genuinely do different things to reach the same outcome.</p>
+
+    <section>
+      <h2 class="h-section">Where the platforms diverge</h2>
+      <div class="tablewrap-plain">
+        <table class="parity-table">
+          <thead><tr><th>mechanism</th><th>seen in</th><th>Windows</th><th>Unix</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="mech">Privilege drop<br><span class="anchor-inline">boot-1-spawn-broker</span></td>
+              <td class="seen">—</td>
+              <td><code>CreateProcessAsUserW</code> into the active console session (session 0 → N)</td>
+              <td>macOS: fork + <code>setgid</code>/<code>setuid</code> + full group set. <strong>Linux: none — stays root</strong> (no portable console-session primitive; accepted gap)</td>
+            </tr>
+            <tr>
+              <td class="mech">Ownership reassignment on <code>broker.json</code><br><span class="anchor-inline">watcher-config-apply</span></td>
+              <td class="seen"><a href="#d06">D06</a></td>
+              <td><code>SetSecurityInfo</code> on <code>broker.json</code>'s <em>handle</em>, opened with <code>WRITE_DAC|WRITE_OWNER</code> up front, plus <code>SeRestorePrivilege</code>/<code>SeTakeOwnershipPrivilege</code> enabled on the process token</td>
+              <td><code>fchown()</code> on <code>broker.json</code> — no special privilege needed beyond already being root</td>
+            </tr>
+            <tr>
+              <td class="mech">Secret-file ACL <span style="color:var(--ink-soft)">(token, CA key, sidecar)</span></td>
+              <td class="seen">—</td>
+              <td>path-based <code>SetNamedSecurityInfoW</code> → a protected DACL, one ACE, owner FullControl</td>
+              <td><code>chmod 0600</code></td>
+            </tr>
+            <tr>
+              <td class="mech">Parent-death watchdog<br><span class="anchor-inline">llm-1-proxy-handler</span></td>
+              <td class="seen">—</td>
+              <td>resolve the parent pid once (toolhelp32), then block on <code>WaitForSingleObject</code> — event-driven, no polling</td>
+              <td>poll <code>getppid()</code> every 2s; exit once it changes (reparented to init/launchd)</td>
+            </tr>
+            <tr>
+              <td class="mech">--recover: find stray brokers</td>
+              <td>checklist (§7)</td>
+              <td>toolhelp32 snapshot walk — the executable name (<code>szExeFile</code>) is authoritative, no extra check</td>
+              <td><code>pgrep -f ai-broker-mon</code>, then a <code>ps -o comm=</code> confirmation — <code>pgrep -f</code> matches the whole command line, so it also catches e.g. <code>cargo build -p ai-broker-mon</code></td>
+            </tr>
+            <tr>
+              <td class="mech">--recover: terminate</td>
+              <td>checklist (§7)</td>
+              <td><code>TerminateProcess</code> — one primitive; the term-then-grace-then-kill dance still runs, but its second stage's survivor pass is simply always empty</td>
+              <td><code>kill(pid, SIGTERM)</code>, then <code>SIGKILL</code> after a grace window — a real two-stage shutdown</td>
+            </tr>
+            <tr>
+              <td class="mech">Liveness check</td>
+              <td>checklist (§7)</td>
+              <td><code>OpenProcess</code>-based alive check</td>
+              <td><code>kill(pid, 0) == 0</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note-block warn">
+        <div class="nb-title">Linux only shows up once, on purpose</div>
+        <p>Everywhere else in this table, Linux runs the same code path as macOS — they're both "Unix." Privilege drop is the one deliberate exception: it's macOS-only. A Linux root daemon still plain-spawns the broker as root, an explicit, user-confirmed trade-off rather than an oversight (no portable console-session-uid primitive without parsing utmp or shelling to <code>loginctl</code> from a root process).</p>
+      </div>
+    </section>
+
+    </section> <!-- /d03 -->
+
+    <section id="d04" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">04</span> Full component &amp; trust-boundary map</h2>
+    <p class="diagram-intro">This is the zoom-out: every process, every remote service, and every boundary — privilege and network both — anywhere in this system, on one page.</p>
+
+    <section>
+      <h2 class="h-section">The whole system</h2>
+      <figure class="diagram">
+        <div class="diagram-frame">
+          <svg viewBox="0 0 1000 500" role="img" aria-label="Component map: on this device, the agent and ai-protect daemon each spawn their own child (the mcp-server relay and the control broker with its llm-proxy child); all four processes independently register and activate with Vector and Bumblebee in Zscaler's cloud to get a signed identity, then send their actual MCP and LLM traffic through the ZAX gateway, which forwards it on to real third-party MCP servers and LLM providers.">
+            <!-- band backgrounds -->
+            <rect x="15" y="30" width="565" height="450" rx="8" style="fill:var(--line-soft);opacity:.35"/>
+            <rect x="595" y="30" width="245" height="450" rx="8" style="fill:var(--data);opacity:.06"/>
+            <rect x="855" y="30" width="130" height="450" rx="8" style="fill:var(--boundary);opacity:.05"/>
+            <text x="297" y="22" text-anchor="middle" style="font-family:var(--font-display);font-size:11px;font-weight:600;letter-spacing:.08em;fill:var(--ink-soft)">THIS DEVICE</text>
+            <text x="717" y="22" text-anchor="middle" style="font-family:var(--font-display);font-size:11px;font-weight:600;letter-spacing:.08em;fill:var(--data)">ZSCALER CLOUD</text>
+            <text x="920" y="22" text-anchor="middle" style="font-family:var(--font-display);font-size:11px;font-weight:600;letter-spacing:.08em;fill:var(--boundary)">THIRD PARTY</text>
+
+            <!-- privilege boundary -->
+            <line x1="30" y1="110" x2="570" y2="110" style="stroke:var(--boundary);stroke-width:1.5;stroke-dasharray:2 5"/>
+            <text x="40" y="103" style="font-family:var(--font-mono);font-size:9.5px;font-weight:600;fill:var(--boundary)">PRIVILEGE BOUNDARY — root/LocalSystem above, console user below</text>
+
+            <!-- Agent -->
+            <rect x="50" y="55" width="150" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="125" y="78" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;fill:currentColor">Agent (Codex, …)</text>
+
+            <!-- daemon -->
+            <rect x="420" y="55" width="160" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="500" y="78" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;fill:currentColor">ai-protect daemon</text>
+
+            <!-- mcp-server -->
+            <rect x="50" y="150" width="170" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="135" y="173" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:currentColor">--mcp-server</text>
+            <line x1="125" y1="93" x2="125" y2="148" marker-end="url(#arrow4)" style="stroke:currentColor;stroke-width:1.3"/>
+
+            <!-- control -->
+            <rect x="330" y="150" width="170" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="415" y="173" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:currentColor">--control</text>
+            <line x1="470" y1="93" x2="415" y2="148" marker-end="url(#arrowControl4)" style="stroke:var(--boundary);stroke-width:1.6"/>
+
+            <!-- llm-proxy -->
+            <rect x="330" y="220" width="170" height="38" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="415" y="243" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:currentColor">--llm-proxy</text>
+            <line x1="415" y1="188" x2="415" y2="218" marker-end="url(#arrow4)" style="stroke:currentColor;stroke-width:1.3"/>
+
+            <!-- Vector / Bumblebee -->
+            <rect x="620" y="150" width="190" height="38" rx="6" style="fill:none;stroke:var(--data);stroke-width:1.3"/>
+            <text x="715" y="173" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--data)">Vector (registry)</text>
+
+            <rect x="620" y="220" width="190" height="38" rx="6" style="fill:none;stroke:var(--data);stroke-width:1.3"/>
+            <text x="715" y="238" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--data)">Bumblebee</text>
+            <text x="715" y="251" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">activate + token-exchange</text>
+
+            <!-- thin plumbing edges: both legs to Vector/Bumblebee -->
+            <line x1="220" y1="160" x2="615" y2="163" style="stroke:currentColor;stroke-width:.9;stroke-dasharray:2 3;opacity:.55" marker-end="url(#arrow4)"/>
+            <line x1="220" y1="178" x2="615" y2="232" style="stroke:currentColor;stroke-width:.9;stroke-dasharray:2 3;opacity:.55" marker-end="url(#arrow4)"/>
+            <line x1="500" y1="230" x2="615" y2="180" style="stroke:currentColor;stroke-width:.9;stroke-dasharray:2 3;opacity:.55" marker-end="url(#arrow4)"/>
+            <line x1="500" y1="248" x2="615" y2="240" style="stroke:currentColor;stroke-width:.9;stroke-dasharray:2 3;opacity:.55" marker-end="url(#arrow4)"/>
+            <text x="420" y="120" text-anchor="middle" style="font-family:var(--font-display);font-size:10px;fill:var(--ink-soft)">both legs register + activate independently, under their own agent identity</text>
+
+            <!-- ZAX gateway -->
+            <rect x="620" y="330" width="190" height="46" rx="6" style="fill:var(--data);opacity:.1;stroke:var(--data);stroke-width:1.6"/>
+            <text x="715" y="355" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:700;fill:var(--data)">ZAX gateway</text>
+            <text x="715" y="368" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">(Optimus) — the actual traffic broker</text>
+
+            <!-- data-plane edges (teal, solid, prominent) -->
+            <line x1="220" y1="185" x2="622" y2="345" marker-end="url(#arrow4)" style="stroke:var(--data);stroke-width:1.8"/>
+            <text x="400" y="290" text-anchor="middle" style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;fill:var(--data)">signed tools/call</text>
+
+            <line x1="500" y1="245" x2="622" y2="355" marker-end="url(#arrow4)" style="stroke:var(--data);stroke-width:1.8"/>
+            <text x="560" y="320" text-anchor="middle" style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;fill:var(--data)">signed LLM call</text>
+
+            <!-- Third party -->
+            <rect x="870" y="325" width="110" height="38" rx="6" style="fill:none;stroke:var(--boundary);stroke-width:1.3"/>
+            <text x="925" y="344" text-anchor="middle" style="font-family:var(--font-mono);font-size:10px;font-weight:600;fill:var(--boundary)">real MCP</text>
+            <text x="925" y="356" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">server(s)</text>
+
+            <rect x="870" y="380" width="110" height="38" rx="6" style="fill:none;stroke:var(--boundary);stroke-width:1.3"/>
+            <text x="925" y="399" text-anchor="middle" style="font-family:var(--font-mono);font-size:10px;font-weight:600;fill:var(--boundary)">real LLM</text>
+            <text x="925" y="411" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">provider</text>
+
+            <line x1="810" y1="345" x2="865" y2="344" marker-end="url(#arrow4)" style="stroke:var(--data);stroke-width:1.8"/>
+            <line x1="810" y1="365" x2="865" y2="395" marker-end="url(#arrow4)" style="stroke:var(--data);stroke-width:1.8"/>
+
+            <!-- credential note -->
+            <text x="500" y="450" text-anchor="middle" style="font-family:var(--font-display);font-size:11px;font-weight:600;fill:currentColor">the agent's OWN provider credential rides every teal hop unchanged, all the way to the real provider</text>
+            <text x="500" y="465" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">the ZAX identity (triple JWT + RFC 9421 signature) is a separate header, layered on top, never a replacement</text>
+          </svg>
+        </div>
+        <figcaption>Teal is the actual traffic this whole system exists to broker — everything else on the page is identity plumbing that makes the teal path trustworthy. Only the daemon→<code>--control</code> spawn crosses the privilege boundary; every other arrow on this device runs as the same console user.</figcaption>
+        <div class="legend">
+          <span><i class="swatch" style="background:var(--data)"></i>brokered traffic (MCP / LLM)</span>
+          <span><i class="swatch" style="background:currentColor;opacity:.5"></i>identity plumbing (register / activate)</span>
+          <span><i class="swatch" style="background:var(--boundary)"></i>privilege or network trust boundary</span>
+        </div>
+      </figure>
+    </section>
+
+    <section>
+      <h2 class="h-section">What's the same across every leg</h2>
+      <div class="actor-grid" style="grid-template-columns: 1fr 1fr;">
+        <div class="actor">
+          <h3>One SDK, four independent identities</h3>
+          <p><code>--mcp-server</code> and <code>--llm-proxy</code> both link <code>zax_sdk</code> and both run the same register → activate → exchange pipeline — but each registers under <em>its own</em> agent identity (a Codex MCP leg and a Codex LLM leg are two separate registrations), not a shared one.</p>
+        </div>
+        <div class="actor">
+          <h3>The gateway is the only thing that talks to the real world</h3>
+          <p>Neither leg ever dials a real MCP server or LLM provider directly. Every brokered byte passes through the ZAX gateway, which is what makes inspection, policy, and attribution possible in the first place.</p>
+        </div>
+      </div>
+      <p style="margin-top:20px">Diagram-by-diagram, what this map draws on: the <code>--mcp-server</code> leg's traffic (<a href="#d01">01</a>), the <code>--llm-proxy</code> leg's traffic (<a href="#d02">02</a>), and which of all this differs on Windows (<a href="#d03">03</a>). The privilege-drop spawn, the credential push/renewal, and the agent-config write shown in the diagram above no longer have a dedicated diagram each — they're covered by the file protocol (<a href="#d06">06</a>) and the crate split (<a href="#d07">07</a>) instead.</p>
+    </section>
+
+    </section> <!-- /d04 -->
+
+    <section id="d05" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">05</span> Where ai-protect and ai-broker can — and can't — break each other</h2>
+    <p class="diagram-intro">Both sit on the same agent, both touch the same agent's config, and every tool call passes through both. That sounds like a recipe for collisions. In practice most of it is structurally impossible — but one real gap isn't, and it gets wider as more agents get enabled.</p>
+
+    <section>
+      <h2 class="h-section">Scope</h2>
+      <p>Codex, concretely, since it's the one agent actually wired today (<code>accepted_agents</code> defaults to <code>{codex}</code>). The shape generalizes to any future agent that has its own native "which MCP identities may I use" hardening surface.</p>
+    </section>
+
+    <section>
+      <h2 class="h-section">The two files, and the one thing that reads both</h2>
+      <figure class="diagram">
+        <div class="diagram-frame">
+          <svg viewBox="0 0 900 520" role="img" aria-label="Two separate config files, one owned by ai-protect and root-only, one owned by the user and writable by ai-broker, both read by Codex itself, which reconciles them at runtime — plus a third file, an informational advisory.json the daemon writes into broker.json's advisories field for the broker to mirror locally, so the broker can see (but never override) ai-protect's enforce_mcp decision — and every tool call separately passes through ai-protect's own hook regardless of which file provided it.">
+            <rect x="30" y="40" width="200" height="40" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="130" y="65" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ai-protect daemon</text>
+
+            <rect x="670" y="40" width="200" height="40" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3"/>
+            <text x="770" y="65" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ai-broker-mon --control</text>
+
+            <rect x="30" y="140" width="260" height="56" rx="6" style="fill:var(--boundary);opacity:.1;stroke:var(--boundary);stroke-width:1.6"/>
+            <text x="160" y="163" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:700;fill:var(--boundary)">requirements.toml</text>
+            <text x="160" y="180" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">root-owned, mode 0644 — hooks + enforce_mcp allowlist</text>
+
+            <rect x="610" y="140" width="260" height="56" rx="6" style="fill:var(--data);opacity:.1;stroke:var(--data);stroke-width:1.6"/>
+            <text x="740" y="163" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:700;fill:var(--data)">~/.codex/config.toml</text>
+            <text x="740" y="180" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">user-owned — [mcp_servers.zax] and whatever else is configured</text>
+
+            <line x1="130" y1="80" x2="150" y2="138" marker-end="url(#arrow4)" style="stroke:var(--boundary);stroke-width:1.6"/>
+            <line x1="770" y1="80" x2="750" y2="138" marker-end="url(#arrowControl4)" style="stroke:var(--data);stroke-width:1.6"/>
+            <text x="880" y="168" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">write</text>
+            <text x="20" y="168" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">write</text>
+
+            <!-- Mitigation: ai-protect writes its resolved enforce_mcp decision into
+                 broker.json's advisories[] field (the file protocol, Diagram 06),
+                 and ai-broker mirrors it to a sibling file. This narrows — does NOT
+                 close — the silent-exclusion gap below: Codex still only ever reads
+                 requirements.toml. -->
+            <rect x="610" y="280" width="260" height="60" rx="6" style="fill:var(--control);opacity:.1;stroke:var(--control);stroke-width:1.6"/>
+            <text x="740" y="303" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:700;fill:var(--control)">~/.codex/advisory.json</text>
+            <text x="740" y="319" text-anchor="middle" style="font-family:var(--font-mono);font-size:8.5px;fill:var(--ink-soft)">written by ai-broker — mirrors ai-protect's enforce_mcp</text>
+            <text x="740" y="331" text-anchor="middle" style="font-family:var(--font-mono);font-size:8.5px;fill:var(--ink-soft)">decision for visibility. Codex never reads this file.</text>
+
+            <line x1="860" y1="196" x2="860" y2="278" marker-end="url(#arrowControl4)" style="stroke:var(--control);stroke-width:1.3;stroke-dasharray:2 3"/>
+            <text x="893" y="237" text-anchor="middle" transform="rotate(90 893 237)" style="font-family:var(--font-mono);font-size:8px;fill:var(--ink-soft)">advisories[] (broker.json)</text>
+
+            <!-- Codex, the bridge -->
+            <rect x="330" y="240" width="240" height="56" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.8"/>
+            <text x="450" y="263" text-anchor="middle" style="font-family:var(--font-mono);font-size:12.5px;font-weight:700;fill:currentColor">Codex itself</text>
+            <text x="450" y="280" text-anchor="middle" style="font-family:var(--font-display);font-size:9.5px;fill:var(--ink-soft)">reads both, reconciles at runtime</text>
+
+            <line x1="160" y1="196" x2="380" y2="242" marker-end="url(#arrow4)" style="stroke:var(--boundary);stroke-width:1.3;stroke-dasharray:2 3"/>
+            <line x1="740" y1="196" x2="520" y2="242" marker-end="url(#arrow4)" style="stroke:var(--data);stroke-width:1.3;stroke-dasharray:2 3"/>
+            <text x="450" y="222" text-anchor="middle" style="font-family:var(--font-display);font-size:10.5px;fill:var(--ink-soft)">config.toml says WHAT exists — requirements.toml says WHAT'S ALLOWED</text>
+
+            <!-- the hook, per call -->
+            <line x1="450" y1="296" x2="450" y2="340" marker-end="url(#arrow4)" style="stroke:var(--boundary);stroke-width:1.6"/>
+            <text x="450" y="320" text-anchor="middle" style="font-family:var(--font-mono);font-size:10.5px;font-weight:600;fill:var(--boundary)">every tool call → PreToolUse hook</text>
+
+            <rect x="330" y="340" width="240" height="50" rx="6" style="fill:var(--boundary);opacity:.1;stroke:var(--boundary);stroke-width:1.6"/>
+            <text x="450" y="362" text-anchor="middle" style="font-family:var(--font-mono);font-size:11.5px;font-weight:600;fill:var(--boundary)">ai-protect: policy::evaluate</text>
+            <text x="450" y="378" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">sees artifact.mcp_server = "zax" for ANY broker-relayed call</text>
+
+            <line x1="450" y1="390" x2="450" y2="80" style="fill:none;stroke:var(--boundary);stroke-width:1.3;stroke-dasharray:2 3" marker-end="url(#arrow4)"/>
+            <text x="600" y="410" text-anchor="middle" style="font-family:var(--font-display);font-size:9.5px;fill:var(--ink-soft)">block/allow/audit decision, back to the daemon</text>
+          </svg>
+        </div>
+        <figcaption>Two writers, two files, no filesystem race — but one runtime reader (Codex) that treats <code>requirements.toml</code> as authoritative over what <code>config.toml</code> merely declares exists. That's the bridge, and it only runs in one direction: ai-protect's file can silently veto ai-broker's; the reverse has no mechanism at all. <code>advisory.json</code> (amber, added below) doesn't change that — it's ai-broker's own copy of ai-protect's decision, informational only, so the exclusion is at least visible somewhere ai-broker's own diagnostics can read without root.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2 class="h-section">Can it actually break the other?</h2>
+      <div class="tablewrap-plain">
+        <table class="parity-table">
+          <thead><tr><th>interaction</th><th>verdict</th><th>why</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="mech">enforce_mcp allow/block policy</td>
+              <td><span style="color:var(--boundary);font-weight:600">CAN break ai-broker</span></td>
+              <td>Any non-empty allow or block list — even one an admin wrote for unrelated servers — makes Codex's managed allowlist authoritative. <code>"zax"</code> isn't auto-included on either side, so an admin who's never heard of the broker can silently disable it. <strong>No longer silent, though:</strong> ai-protect now writes the resolved decision — including whether <code>"zax"</code> survives it — into <code>broker.json</code>'s <code>advisories[]</code> field (<a href="#d06">Diagram 06</a>), and the broker mirrors it to <code>~/.codex/advisory.json</code>. The exclusion still happens exactly the same way; it's now visible next to the broker's own config instead of only inside a root-owned file.</td>
+            </tr>
+            <tr>
+              <td class="mech">Per-MCP-server block/audit hook rule</td>
+              <td><span style="color:var(--boundary);font-weight:600">CAN break ai-broker</span> (over-broad)</td>
+              <td>The broker presents as one server, <code>"zax"</code>, no matter how many real upstreams sit behind it. A rule aimed at one specific upstream tool can only match/block at the <code>"zax"</code> level — everything behind the broker, or nothing.</td>
+            </tr>
+            <tr>
+              <td class="mech">ai-protect's status.json watcher (ConfigDelta merge)</td>
+              <td><span style="color:var(--boundary);font-weight:600">CAN break ai-broker</span> (self-inflicted)</td>
+              <td>ai-protect's own watcher is the only thing that ever merges a <code>ConfigDelta</code> into <code>[mcp_servers.zax]</code> — see <a href="#d06">Diagram 06</a>. A stalled or paused watcher means the broker's own wiring never lands, with no error on the broker's side to say why.</td>
+            </tr>
+            <tr>
+              <td class="mech">Widening accepted_agents</td>
+              <td><span style="color:var(--boundary);font-weight:600">multiplies the first risk</span></td>
+              <td>Every newly-enabled agent that ships an equivalent native "which MCP identities may I use" hardening feature inherits the same silent-exclusion shape — worth checking per agent before enabling it.</td>
+            </tr>
+            <tr>
+              <td class="mech">ai-broker writing requirements.toml</td>
+              <td><span style="color:var(--data);font-weight:600">CANNOT happen</span></td>
+              <td>Root-owned, mode <code>0644</code>. The broker always runs as the console user, never root — the OS itself refuses the write. Not a convention; a permission bit.</td>
+            </tr>
+            <tr>
+              <td class="mech">ai-protect's hook install racing ai-broker's config write</td>
+              <td><span style="color:var(--data);font-weight:600">CANNOT happen</span></td>
+              <td>For Codex, ai-broker never writes <code>~/.codex/config.toml</code> itself — it only ever reports a <code>ConfigDelta</code> in <code>status.json</code>; ai-protect's own merge (<a href="#d06">Diagram 06</a>) is the sole writer. Two different files, two different writers, so there's no read-modify-write race to have.</td>
+            </tr>
+            <tr>
+              <td class="mech">ai-broker disabling ai-protect's hooks or policy</td>
+              <td><span style="color:var(--data);font-weight:600">CANNOT happen</span></td>
+              <td>No code path in ai-broker touches <code>requirements.toml</code>, the hook-enforcement subscriber, or any policy state. It has nothing to remove or overwrite even if it wanted to.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note-block warn">
+        <div class="nb-title">The asymmetry is the point worth remembering</div>
+        <p>ai-protect can veto ai-broker in three concrete ways, at every granularity from "block one call" to "disable the whole leg." ai-broker cannot touch ai-protect's enforcement at all, by construction — different file, different owner, different permission bits. Enforcement always wins; the advisory only changes how the broker <em>finds out</em>, not what happens.</p>
+        <p>The <code>enforce_mcp</code> row is the only one of the three with a mitigation today — <code>advisory.json</code> covers the case ai-protect can compute in advance (the allow/block resolution). The other two — an over-broad per-server rule, and a stalled config-delta merge — still fail exactly as silently as before; they'd need their own advisory to close the same gap.</p>
+      </div>
+    </section>
+
+    </section> <!-- /d05 -->
+
+    <section id="d06" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">06</span> The file protocol — broker.json / status.json</h2>
+    <p class="diagram-intro">This is what actually runs today, replacing the old Unix-socket / named-pipe control channel entirely. No persistent connection exists anymore: ai-protect and ai-broker (ai-gateway) each write one file, full-snapshot, for the other to watch — independently, on their own poll loop.</p>
+
+    <section>
+      <h2 class="h-section">Scope</h2>
+      <p>The two files' schemas (shared via the <code>ai-types</code> crate's <code>broker</code> module, so a rename is a compile error on both sides), the write/watch loop on each side, and the two things ai-protect does in reaction to a <code>status.json</code> change: refetch a credential, and merge a config delta into an agent's real config file.</p>
+    </section>
+
+    <section>
+      <h2 class="h-section">Topology</h2>
+      <figure class="diagram">
+        <div class="diagram-frame">
+          <svg viewBox="0 0 900 520" role="img" aria-label="ai-protect writes broker.json (owner-chowned 0600, since it carries the ZAX user credential) under the target user's ~/.ai-broker; ai-broker's own watch loop reads it and writes status.json in reply; ai-protect's watch loop reads status.json, edge-triggering a credential refetch on credential_requested going false to true, and merging each config delta into the real agent config file, generically for TOML or JSON targets, preserving every path the delta does not mention.">
+            <defs>
+              <marker id="arrow9" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" style="fill:currentColor"/>
+              </marker>
+            </defs>
+
+            <rect x="30" y="30" width="220" height="50" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.5"/>
+            <text x="140" y="60" text-anchor="middle" style="font-family:var(--font-mono);font-size:13px;font-weight:600;fill:currentColor">ai-protect daemon</text>
+
+            <rect x="650" y="30" width="220" height="50" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.5"/>
+            <text x="760" y="60" text-anchor="middle" style="font-family:var(--font-mono);font-size:13px;font-weight:600;fill:currentColor">ai-broker-mon --control</text>
+
+            <rect x="60" y="150" width="260" height="70" rx="6" style="fill:var(--control);opacity:.1;stroke:var(--control);stroke-width:1.6"/>
+            <text x="190" y="176" text-anchor="middle" style="font-family:var(--font-mono);font-size:12.5px;font-weight:700;fill:var(--control-strong)">broker.json</text>
+            <text x="190" y="194" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">~/.ai-broker/ · owner-chowned 0600</text>
+            <text x="190" y="208" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">full snapshot: credential + agents[] + advisories[]</text>
+
+            <rect x="580" y="150" width="260" height="70" rx="6" style="fill:var(--control);opacity:.1;stroke:var(--control);stroke-width:1.6"/>
+            <text x="710" y="176" text-anchor="middle" style="font-family:var(--font-mono);font-size:12.5px;font-weight:700;fill:var(--control-strong)">status.json</text>
+            <text x="710" y="194" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">~/.ai-broker/ · plain write (already that user)</text>
+            <text x="710" y="208" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft)">full snapshot: ready + credential_requested + agents[]</text>
+
+            <line x1="140" y1="80" x2="180" y2="148" marker-end="url(#arrow9)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="90" y="118" text-anchor="middle" style="font-family:var(--font-mono);font-size:10px;fill:var(--ink-soft)">write_broker_file()</text>
+
+            <line x1="320" y1="185" x2="578" y2="185" marker-end="url(#arrow9)" style="stroke:var(--control);stroke-width:1.3;stroke-dasharray:2 3"/>
+            <text x="450" y="177" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">watcher.rs poll (3s) → AgentManager::apply()</text>
+
+            <line x1="760" y1="80" x2="720" y2="148" marker-end="url(#arrow9)" style="stroke:var(--control);stroke-width:1.6"/>
+            <text x="820" y="118" text-anchor="middle" style="font-family:var(--font-mono);font-size:10px;fill:var(--ink-soft)">write_status_file()</text>
+
+            <line x1="578" y1="205" x2="322" y2="205" marker-end="url(#arrow9)" style="stroke:var(--control);stroke-width:1.3;stroke-dasharray:2 3"/>
+            <text x="450" y="230" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">status_file_watcher() poll (3s)</text>
+
+            <!-- credential edge-trigger loop -->
+            <rect x="60" y="300" width="330" height="80" rx="6" style="fill:none;stroke:var(--boundary);stroke-width:1.4;stroke-dasharray:4 3"/>
+            <text x="225" y="323" text-anchor="middle" style="font-family:var(--font-display);font-size:11.5px;font-weight:600;fill:var(--boundary)">credential_requested: false → true</text>
+            <text x="225" y="340" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">edge-triggers a fetch, then rewrites</text>
+            <text x="225" y="354" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">broker.json with the fresh credential</text>
+            <text x="225" y="370" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft);opacity:.8">recomputed every ai-broker tick — a pure fn of JWT expiry vs now</text>
+
+            <!-- config-delta merge -->
+            <rect x="510" y="300" width="330" height="80" rx="6" style="fill:none;stroke:var(--data);stroke-width:1.4;stroke-dasharray:4 3"/>
+            <text x="675" y="323" text-anchor="middle" style="font-family:var(--font-display);font-size:11.5px;font-weight:600;fill:var(--data)">agents[].config[] : ConfigDelta{file, setting}</text>
+            <text x="675" y="340" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">merged into the real agent config —</text>
+            <text x="675" y="354" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">TOML (toml_edit) or JSON, dispatched by extension</text>
+            <text x="675" y="370" text-anchor="middle" style="font-family:var(--font-mono);font-size:9px;fill:var(--ink-soft);opacity:.8">only paths the delta names are touched — the rest survives untouched</text>
+
+            <line x1="225" y1="220" x2="225" y2="298" marker-end="url(#arrow9)" style="stroke:var(--boundary);stroke-width:1.3"/>
+            <line x1="675" y1="220" x2="675" y2="298" marker-end="url(#arrow9)" style="stroke:var(--data);stroke-width:1.3"/>
+
+            <circle cx="675" cy="450" r="46" style="fill:none;stroke:var(--data);stroke-width:1.6"/>
+            <text x="675" y="446" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:700;fill:var(--data)">~/.codex/</text>
+            <text x="675" y="462" text-anchor="middle" style="font-family:var(--font-mono);font-size:10px;fill:var(--data)">config.toml</text>
+            <line x1="675" y1="380" x2="675" y2="402" marker-end="url(#arrow9)" style="stroke:var(--data);stroke-width:1.3"/>
+
+            <text x="225" y="420" text-anchor="middle" style="font-family:var(--font-mono);font-size:9.5px;fill:var(--ink-soft)">→ folded into the very next broker.json write, same full snapshot</text>
+          </svg>
+        </div>
+        <figcaption>Neither side holds a live connection to the other — a restart on either end just means the other's next poll tick sees a stale-until-rewritten file, not a broken pipe. <code>broker.json</code> is the one of the two carrying a secret (the ZAX user credential), so it alone gets the owner-chown treatment the retired ZIP-staging design used to apply to its manifest; <code>status.json</code> needs none — ai-broker already runs as the user it writes for.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2 class="h-section">Message schema</h2>
+      <div class="schema-grid">
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">BrokerFile</span><span class="dir">daemon → broker (broker.json)</span></div>
+          <div class="sc-body">
+            <table class="fields">
+              <tr><th>field</th><th>type</th><th>note</th></tr>
+              <tr><td class="field">protocol_version</td><td class="type">u32</td><td class="note">mismatch ⇒ ai-broker refuses to act, reports it in status.json</td></tr>
+              <tr><td class="field">bound_user / bound_user_id</td><td class="type">string?</td><td class="note">attribution only</td></tr>
+              <tr><td class="field">home</td><td class="type">string?</td><td class="note">→ ZAX_DEMO_HOME</td></tr>
+              <tr><td class="field">credential</td><td class="type">CredentialPush</td><td class="note">{available, user_jwt?, refresh_token?}</td></tr>
+              <tr><td class="field">agents[]</td><td class="type">BrokerAgentEntry[]</td><td class="note">full discovered-agent list, not a diff</td></tr>
+              <tr><td class="field">advisories[]</td><td class="type">AgentAdvisory[]</td><td class="note">enforce_mcp mirror — see <a href="#d05">Diagram 05</a></td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">StatusFile</span><span class="dir">broker → daemon (status.json)</span></div>
+          <div class="sc-body">
+            <table class="fields">
+              <tr><th>field</th><th>type</th><th>note</th></tr>
+              <tr><td class="field">ready / proxy_base_url</td><td class="type">bool / string?</td><td class="note">LLM proxy readiness</td></tr>
+              <tr><td class="field">credential_requested</td><td class="type">bool</td><td class="note">recomputed every tick — edge-triggered on the daemon side</td></tr>
+              <tr><td class="field">agents[].status</td><td class="type">enum</td><td class="note">not_supported / not_approved / not_able_to_register / success</td></tr>
+              <tr><td class="field">agents[].config[]</td><td class="type">ConfigDelta[]</td><td class="note">{file, setting} — a merge delta, never the whole file</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="anchor" style="display:block;margin-top:10px">zax-anchor: boot-2-write-broker-file, watcher-status-file — src/subscribers/ai_broker_launch.rs · schema — ai-types/src/broker.rs · ai-broker's watch/apply loop — ai-broker/mon/src/control/watcher.rs · ai-broker/agent-manager/src/lib.rs (AgentManager::apply)</div>
+    </section>
+
+    </section> <!-- /d06 -->
+
+    <section id="d07" class="diagram-block">
+    <h2 class="diagram-heading"><span class="dh-num">07</span> AI Gateway crate split</h2>
+    <p class="diagram-intro">From the 2026-08-26 design meeting's whiteboard: the AI Gateway (product name; behaviorally still "ai-broker") decomposes into named components — BrokerJsonManager, Agent Manager, StatusJsonManager, Credential Manager, per-agent Listeners, and the SDK. Each whiteboard box now maps to its own crate, plus one shared infra crate the whiteboard doesn't name. <code>ai-broker-mon</code> is left as a thin orchestrator binary that wires the rest together.</p>
+
+    <div class="note-block">
+      <div class="nb-title">Built 2026-08-26</div>
+      <p>The mechanical split landed the same day it was whiteboarded: six new crates (<code>ai-gateway-broker-json</code>, <code>ai-gateway-status-json</code>, <code>ai-gateway-credential-manager</code>, <code>ai-broker-paths</code>, <code>ai-gateway-listener</code>, <code>ai-gateway-agent-manager</code>), <code>control/service.rs</code> deleted, <code>ai-broker-mon</code>/<code>bootstrap.rs</code>/<code>recover.rs</code>/<code>control/{watcher,sim_daemon}.rs</code> rewired onto them. 75 tests migrated or added across the new crates, all passing; <code>cargo clippy</code> clean across every touched crate; the full workspace (including the unrelated <code>ai-warden</code> daemon, at 2345 tests) still builds and passes together.</p>
+    </div>
+
+    <section>
+      <h2 class="h-section">Box → crate mapping</h2>
+      <div class="tablewrap-plain">
+        <table class="parity-table">
+          <thead><tr><th>whiteboard box</th><th>crate</th><th>owns</th><th>crate location</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="mech">BrokerJsonManager</td>
+              <td class="seen">ai-gateway-broker-json</td>
+              <td>Watch + parse <code>broker.json</code>; hold the latest snapshot in memory; re-read fresh on ai-broker's own restart rather than trusting the watcher.</td>
+              <td class="seen">ai-broker/broker-json/src/lib.rs — BrokerJsonWatcher::changed + read</td>
+            </tr>
+            <tr>
+              <td class="mech">StatusJsonManager</td>
+              <td class="seen">ai-gateway-status-json</td>
+              <td>Build + write <code>status.json</code>; memory cache of the last-written snapshot.</td>
+              <td class="seen">ai-broker/status-json/src/lib.rs — write</td>
+            </tr>
+            <tr>
+              <td class="mech">Agent Manager</td>
+              <td class="seen">ai-gateway-agent-manager</td>
+              <td>The hub: per-agent registration state, dedup, drives the SDK's registration flow, talks to Credential Manager + Listeners.</td>
+              <td class="seen">ai-broker/agent-manager/src/lib.rs — AgentManager::apply + agents/ (AgentAdapter trait &amp; all 18 per-agent modules, moved wholesale)</td>
+            </tr>
+            <tr>
+              <td class="mech">Credential Manager</td>
+              <td class="seen">ai-gateway-credential-manager</td>
+              <td>Scoped to the <strong>user JWT</strong> only (confirmed 2026-08-26, after briefly considering — and then backing out of — widening it to all three JWT layers). Persistence to <code>.credentials.json</code> (24h lifetime, refreshed via the OIDC refresh-token grant; a credential is treated as needing refresh 300 seconds before its actual JWT expiry) and the credential push/renew_proxy flow. Instance JWT and triple JWT stay inside the SDK crate. Persisted to an owner-only-chmod disk file today; OS keychain (macOS Keychain / Windows Credential Manager) planned.</td>
+              <td class="seen">ai-broker/credential-manager/src/{lib.rs,sidecar.rs} — CredentialManager::apply + Sidecar::load/save</td>
+            </tr>
+            <tr>
+              <td class="mech">Listeners / Patches</td>
+              <td class="seen">ai-gateway-listener</td>
+              <td>One per registered agent (today: one shared instance) — proxies that agent's MCP/LLM traffic to Optimus, adding exactly one extra header for the gateway's own token. Deliberately does not depend on Agent Manager — takes <code>IdentityFn</code>/<code>HintsFn</code> function pointers instead, to avoid a dependency cycle.</td>
+              <td class="seen">ai-broker/listener/src/{llm_leg,forward_proxy,mitm,bridge,common,preflight,upstream}.rs</td>
+            </tr>
+            <tr>
+              <td class="mech">SDK</td>
+              <td class="seen">ai-broker-sdk <span style="opacity:.7">(existing — rename candidate: ai-gateway-sdk)</span></td>
+              <td>Registration flow, RFC 9421 signing, RFC 8693 token exchange, gateway request forwarding. Keeps the instance-JWT lifecycle (<code>activation/instance_jwt_manager.rs</code>) and triple-JWT caching (<code>authentication/jwt_util.rs</code>) in-house — only the user JWT moved to Credential Manager.</td>
+              <td class="seen">sdk/ — unchanged, already its own crate</td>
+            </tr>
+            <tr>
+              <td class="mech">(shared infra, not on the whiteboard)</td>
+              <td class="seen">ai-broker-paths</td>
+              <td>Filesystem conventions — <code>resolve_home</code>, <code>backup</code>, <code>claude_json</code>/<code>claude_settings</code>, <code>mitm_ca_dir</code>, the <code>llm_proxy_*</code> paths, <code>resolve_self_command</code>, the per-OS Claude Desktop binary paths, … Used directly by Agent Manager, Listener, <em>and</em> the orchestrator binary — pulled into its own crate rather than duplicated three times, mirroring why <code>ai-types</code> already exists as a shared schema crate.</td>
+              <td class="seen">ai-broker/paths/src/lib.rs — moved verbatim from mon/src/paths.rs</td>
+            </tr>
+            <tr>
+              <td class="mech">(not on the whiteboard)</td>
+              <td class="seen">ai-broker-mon <span style="opacity:.7">(existing — rename candidate: ai-gateway)</span></td>
+              <td>Thin orchestrator binary: CLI, wires the crates above together. Also still owns the standalone Claude-Desktop bootstrap mode (<code>ai-broker-mon</code> with no args) — a separate flow the whiteboard doesn't cover, since it doesn't go through <code>--control</code> at all.</td>
+              <td class="seen">main.rs, bootstrap.rs, recover.rs, control/{mod.rs,watcher.rs,sim_daemon.rs}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="h-section">Crate summaries</h2>
+      <div class="schema-grid">
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-gateway-broker-json</span><span class="dir">broker-json/</span></div>
+          <div class="sc-body">
+            <p>Watches <code>broker.json</code> for real changes (first sight, a path switch, or a genuine mtime change — <code>BrokerJsonWatcher::changed</code>) and parses it into the shared <code>ai_types::broker::BrokerFile</code> schema. No agent logic, no state beyond "have I seen this file before." 4 tests.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-gateway-status-json</span><span class="dir">status-json/</span></div>
+          <div class="sc-body">
+            <p>The write half of the file protocol: serializes a <code>StatusFile</code> and writes it out, creating parent directories as needed. No owner-chown step — ai-broker already runs as the target user by the time it writes this. 1 test.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-gateway-credential-manager</span><span class="dir">credential-manager/</span></div>
+          <div class="sc-body">
+            <p>Owns the <code>.credentials.json</code> sidecar and the <strong>user JWT only</strong> — load/save, the 300s freshness buffer, and the env-var push/clear that downstream code reads. The instance JWT and triple JWT stay inside <code>ai-broker-sdk</code>; this crate was briefly considered for all three layers and deliberately kept narrow. 9 tests.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-broker-paths</span><span class="dir">paths/</span></div>
+          <div class="sc-body">
+            <p>Shared filesystem conventions — home-dir resolution, the Claude config/settings paths, the MITM CA dir, the <code>--llm-proxy</code> shutdown-flag and token paths, per-OS Claude Desktop binary lookup, backup-file naming. Not a whiteboard box; factored out because Agent Manager, Listener, and the orchestrator binary all needed the same ~20 functions. 4 tests.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-gateway-listener</span><span class="dir">listener/</span></div>
+          <div class="sc-body">
+            <p>The actual traffic path: the shared LLM reverse proxy (<code>llm_leg</code>), the CONNECT-MITM forward proxy for knob-less agents (<code>forward_proxy</code> + <code>mitm</code>), and the stdio MCP relay (<code>bridge</code>). Deliberately does not depend on Agent Manager — where it needs per-agent-adapter knowledge (registration identity, forward-proxy launch hints) it takes an <code>IdentityFn</code>/<code>HintsFn</code> function pointer supplied by the caller instead, so the crate graph stays acyclic. 23 tests.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-gateway-agent-manager</span><span class="dir">agent-manager/</span></div>
+          <div class="sc-body">
+            <p>The one true hub, matching the whiteboard: <code>AgentManager::apply</code> reconciles a fresh <code>BrokerFile</code> into a <code>StatusFile</code> — protocol-version check, pushing credential changes, spawning/renewing the shared proxy, and driving all 18 agent adapters (<code>agents/</code>, moved wholesale, unchanged). The only crate that talks to Credential Manager, Listener, <em>and</em> the SDK's adapters in one place. 12 tests.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-broker-sdk</span><span class="dir">sdk/ <span style="opacity:.7">(unchanged)</span></span></div>
+          <div class="sc-body">
+            <p>Registration flow, RFC 9421 request signing, RFC 8693 token exchange, and forwarding to Optimus. Keeps the instance-JWT activation lifecycle and triple-JWT caching in-house — the two JWT layers Credential Manager doesn't own. Already its own crate before the split; untouched by it.</p>
+          </div>
+        </div>
+        <div class="schema-card">
+          <div class="sc-head"><span class="name">ai-broker-mon</span><span class="dir">mon/ <span style="opacity:.7">(thinned)</span></span></div>
+          <div class="sc-body">
+            <p>What's left once everything above moved out: the CLI, the standalone Claude-Desktop bootstrap mode (<code>bootstrap.rs</code>, <code>recover.rs</code> — a flow the whiteboard doesn't cover), and <code>control/</code> — now just <code>watcher.rs</code> (polls BrokerJsonManager, hands snapshots to <code>AgentManager::apply</code>, writes the result via StatusJsonManager) and <code>sim_daemon.rs</code>. <code>control/service.rs</code>, the old reconciler, is deleted — fully superseded by Agent Manager. 22 tests.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="h-section">Dependency tree</h2>
+      <p>The internal-crate slice of <code>cargo tree -p ai-broker-mon</code> — external dependencies elided, <code>(*)</code> marking a subtree already expanded once above. Three crates (<code>ai-broker-paths</code>, <code>ai-broker-sdk</code>, <code>ai-types</code>) have no internal dependencies of their own, which is what makes them safe to share without creating a cycle.</p>
+      <div class="sc-example" style="font-size:12.5px;line-height:1.7;max-width:640px">ai-broker-mon (bin)
+├── ai-broker-paths
+├── ai-broker-sdk
+├── ai-types
+├── ai-gateway-broker-json
+│   └── ai-types (*)
+├── ai-gateway-status-json
+│   └── ai-types (*)
+├── ai-gateway-credential-manager
+│   └── ai-broker-sdk (*)
+├── ai-gateway-listener
+│   ├── ai-broker-paths (*)
+│   ├── ai-broker-sdk (*)
+│   └── ai-gateway-credential-manager (*)
+└── ai-gateway-agent-manager
+    ├── ai-broker-paths (*)
+    ├── ai-types (*)
+    ├── ai-gateway-credential-manager (*)
+    └── ai-gateway-listener (*)</div>
+      <p style="margin-top:12px">No crate below <code>ai-broker-mon</code> ever depends back up on <code>ai-gateway-agent-manager</code> — that's the edge that would have closed a cycle, since Agent Manager already depends on Listener (to spawn/renew the shared proxy) and on Credential Manager (to push credential changes).</p>
+    </section>
+
+    <section>
+      <h2 class="h-section">Dependency graph</h2>
+      <figure class="diagram">
+        <div class="diagram-frame">
+          <svg viewBox="0 0 900 420" role="img" aria-label="ai-broker-mon depends on ai-gateway-agent-manager, ai-gateway-broker-json, ai-gateway-status-json, and ai-gateway-listener. ai-gateway-agent-manager depends on ai-gateway-credential-manager and ai-broker-sdk. ai-gateway-listener depends on ai-broker-sdk and ai-gateway-credential-manager. ai-gateway-broker-json and ai-gateway-status-json both depend on ai-types for the shared schema.">
+            <defs>
+              <marker id="arrow10" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" style="fill:currentColor;opacity:.75"/>
+              </marker>
+            </defs>
+
+            <rect x="360" y="20" width="220" height="46" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.8"/>
+            <text x="470" y="48" text-anchor="middle" style="font-family:var(--font-mono);font-size:12.5px;font-weight:700;fill:currentColor">ai-broker-mon (binary)</text>
+
+            <rect x="30" y="130" width="190" height="50" rx="6" style="fill:none;stroke:var(--control);stroke-width:1.5"/>
+            <text x="125" y="152" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">ai-gateway-</text>
+            <text x="125" y="168" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">broker-json</text>
+
+            <rect x="250" y="130" width="190" height="50" rx="6" style="fill:none;stroke:var(--control);stroke-width:1.5"/>
+            <text x="345" y="152" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">ai-gateway-</text>
+            <text x="345" y="168" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--control-strong)">status-json</text>
+
+            <rect x="470" y="130" width="200" height="50" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.8"/>
+            <text x="570" y="152" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:700;fill:currentColor">ai-gateway-</text>
+            <text x="570" y="168" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:700;fill:currentColor">agent-manager</text>
+
+            <rect x="700" y="130" width="180" height="50" rx="6" style="fill:none;stroke:var(--data);stroke-width:1.5"/>
+            <text x="790" y="152" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--data)">ai-gateway-</text>
+            <text x="790" y="168" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--data)">listener</text>
+
+            <rect x="470" y="250" width="200" height="50" rx="6" style="fill:none;stroke:var(--boundary);stroke-width:1.5"/>
+            <text x="570" y="272" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--boundary)">ai-gateway-</text>
+            <text x="570" y="288" text-anchor="middle" style="font-family:var(--font-mono);font-size:11px;font-weight:600;fill:var(--boundary)">credential-manager</text>
+
+            <rect x="700" y="250" width="180" height="50" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.5"/>
+            <text x="790" y="280" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ai-broker-sdk</text>
+
+            <rect x="140" y="340" width="220" height="46" rx="6" style="fill:none;stroke:currentColor;stroke-width:1.3;stroke-dasharray:3 3;opacity:.8"/>
+            <text x="250" y="368" text-anchor="middle" style="font-family:var(--font-mono);font-size:12px;font-weight:600;fill:currentColor">ai-types (schema)</text>
+
+            <line x1="440" y1="66" x2="180" y2="128" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.3;opacity:.75"/>
+            <line x1="460" y1="66" x2="380" y2="128" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.3;opacity:.75"/>
+            <line x1="500" y1="66" x2="560" y2="128" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.3;opacity:.75"/>
+            <line x1="530" y1="66" x2="780" y2="128" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.3;opacity:.75"/>
+
+            <line x1="560" y1="180" x2="560" y2="248" marker-end="url(#arrow10)" style="stroke:var(--boundary);stroke-width:1.3;opacity:.8"/>
+            <line x1="600" y1="180" x2="770" y2="248" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.2;opacity:.7"/>
+            <line x1="800" y1="180" x2="800" y2="248" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.2;opacity:.7"/>
+            <line x1="770" y1="180" x2="610" y2="248" marker-end="url(#arrow10)" style="stroke:var(--boundary);stroke-width:1.2;opacity:.6"/>
+
+            <line x1="180" y1="180" x2="250" y2="338" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.1;stroke-dasharray:2 3;opacity:.6"/>
+            <line x1="345" y1="180" x2="280" y2="338" marker-end="url(#arrow10)" style="stroke:currentColor;stroke-width:1.1;stroke-dasharray:2 3;opacity:.6"/>
+
+            <text x="470" y="115" text-anchor="middle" style="font-family:var(--font-display);font-size:9.5px;fill:var(--ink-soft)">wires all four together</text>
+          </svg>
+        </div>
+        <figcaption>The bold box (Agent Manager) is the one true hub, matching the whiteboard exactly — it's the only crate that talks to Credential Manager, the SDK, <em>and</em> gets wired in by the binary. <code>ai-types</code> stays the one dependency both JSON-file managers share with ai-protect itself, so the schema can never drift between the three. <code>ai-broker-paths</code> is omitted here since it isn't a whiteboard box — see the dependency tree above for where it actually sits (a leaf dependency of Agent Manager, Listener, and the binary itself).</figcaption>
+      </figure>
+    </section>
+
+    </section> <!-- /d07 -->
+
+    <!-- SET COMPLETE -->
+    <section>
+      <div class="note-block" style="border-color: var(--data)">
+        <div class="nb-title">7 diagrams on this page</div>
+        <p><a href="#d01">01</a> is the <code>--mcp-server</code> leg's traffic; <a href="#d02">02</a> is the <code>--llm-proxy</code> leg's traffic; <a href="#d03">03</a> is the Windows/Unix parity map; <a href="#d04">04</a> is how it all fits together; <a href="#d05">05</a> is what happens when ai-protect's enforcement and ai-broker's wiring meet on the same agent; <a href="#d06">06</a> is the file protocol that actually runs today; <a href="#d07">07</a> is the crate split behind the AI Gateway name. For the retired designs these superseded — the control-socket bootstrap handshake, the credential-push control message, and the write/stage config-sink duality — see <a href="ai-broker-control-plane.html">ai-broker-control-plane.html</a>.</p>
+      </div>
+    </section>
+
+    <footer>
+      <span>ai-protect / ai-broker (ai-gateway) · control-plane reference — current state</span>
+      <span>source: src/subscribers/ai_broker_launch.rs · ai-types/src/broker.rs · ai-broker/mon/src/control/watcher.rs · ai-broker/agent-manager/src/lib.rs · ai-broker/listener/src/bridge.rs · ai-broker/sdk/src/forwarding/mcp/session.rs</span>
+    </footer>
+  </main>
+</div>

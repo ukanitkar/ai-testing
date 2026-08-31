@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Broker Windows E2E Suite — Step Order</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1b1f23;
+    --muted: #57606a;
+    --border: #d0d7de;
+    --head-bg: #f6f8fa;
+    --accent: #0969da;
+    --destructive-bg: #fff1f0;
+    --destructive-border: #ffb3ab;
+    --destructive-text: #a40e26;
+    --safe-bg: #f0fdf4;
+    --safe-border: #bbf7d0;
+    --safe-text: #1a7f37;
+    --excluded-bg: #fff8e6;
+    --excluded-border: #ffe08a;
+    --excluded-text: #9a6700;
+    --code-bg: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9198a1;
+      --border: #30363d;
+      --head-bg: #161b22;
+      --accent: #4493f8;
+      --destructive-bg: #2d1214;
+      --destructive-border: #6e2530;
+      --destructive-text: #ff9492;
+      --safe-bg: #0f2b1a;
+      --safe-border: #2a5c3d;
+      --safe-text: #57d38a;
+      --excluded-bg: #2b2109;
+      --excluded-border: #5c4a1a;
+      --excluded-text: #e3b341;
+      --code-bg: #161b22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.5rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+  .subtitle { color: var(--muted); margin: 0 0 2rem; font-size: 0.95rem; }
+  .subtitle code { font-size: 0.85em; }
+  h2 {
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+    margin: 2.5rem 0 1rem;
+  }
+  .step {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.15rem;
+    margin-bottom: 0.75rem;
+    background: var(--head-bg);
+  }
+  .step-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.35rem;
+  }
+  .num {
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 1.6rem;
+  }
+  .title { font-weight: 600; flex: 1; }
+  .tag {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    white-space: nowrap;
+  }
+  .tag.destructive { background: var(--destructive-bg); border: 1px solid var(--destructive-border); color: var(--destructive-text); }
+  .tag.safe { background: var(--safe-bg); border: 1px solid var(--safe-border); color: var(--safe-text); }
+  .tag.excluded { background: var(--excluded-bg); border: 1px solid var(--excluded-border); color: var(--excluded-text); }
+  .desc { color: var(--fg); font-size: 0.92rem; }
+  .meta {
+    margin-top: 0.5rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+  code {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.85em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .gate-note {
+    border-left: 3px solid var(--accent);
+    padding: 0.6rem 1rem;
+    background: var(--head-bg);
+    border-radius: 0 6px 6px 0;
+    font-size: 0.88rem;
+    margin: 1rem 0 1.25rem;
+    color: var(--muted);
+  }
+  .manual .step { background: var(--excluded-bg); border-color: var(--excluded-border); }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI Broker Windows E2E Suite — Step Order</h1>
+  <p class="subtitle">Orchestrator: <code>commands\run-e2e-suite.ps1</code> — run from a non-elevated PowerShell window as the console user, with <code>run-e2e-suite-elevated-helper.ps1</code> already running in a separate elevated window.</p>
+
+  <h2>Preflight</h2>
+  <div class="step">
+    <div class="step-head"><span class="num">0</span><span class="title">Session, mock device plane, elevated helper</span><span class="tag safe">read-only</span></div>
+    <div class="desc">Confirms the active console session is the expected user; starts the mock device plane on <code>:8080</code> if not already reachable (60s heartbeat cadence); probes the elevated helper (<code>sc-query</code>) and aborts if it can't be reached.</div>
+  </div>
+
+  <h2>Main sequence</h2>
+
+  <div class="step">
+    <div class="step-head"><span class="num">1</span><span class="title">Fresh deploy</span><span class="tag destructive">destructive</span></div>
+    <div class="desc">Copies the freshly-built <code>zscaler-ai-protect.exe</code> / <code>ai-broker-mon.exe</code> onto the VM; hash-verifies both. Stops the service first so the copy isn't blocked by a file-in-use daemon/broker.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">2</span><span class="title">Path B — SYSTEM service crosses the privilege boundary</span><span class="tag safe">read-only</span></div>
+    <div class="desc">Starts the service; greps <code>daemon.log</code> for the actual <code>CreateProcessAsUser</code> session crossing and the first <code>status.json … ready</code>.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">3</span><span class="title">Privilege-drop ownership verification</span><span class="tag safe">read-only</span></div>
+    <div class="desc">Via the elevated helper's <code>psinfo</code>: confirms the daemon stays SYSTEM in session 0, and both broker processes run as the console user. The single most important fact this whole suite checks.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">4</span><span class="title">TLS + per-install-token, live</span><span class="tag safe">read-only</span></div>
+    <div class="desc">Probes the live <code>--llm-proxy</code> on <code>:8788</code>: right token (expect not 401), wrong token (expect 401), missing token (expect 401), plain <code>http://</code> (expect refused, no plaintext fallback).</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">5</span><span class="title">Unit suites, Windows</span><span class="tag safe">read-only</span></div>
+    <div class="desc"><code>cargo test -p ai-warden --lib</code>, <code>cargo test -p ai-broker-mon</code>, then the 9 elevation-gated tests (need <code>SeRestorePrivilege</code>) via the elevated helper's <code>cargo-test-elevated</code> action.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">6</span><span class="title">secure_file owner-only DACL</span><span class="tag safe">read-only</span></div>
+    <div class="desc"><code>phase-a-acl.ps1</code> — ACL/owner spot-check on <code>llm-proxy.token</code>, <code>.credentials.json</code>, <code>mitm-ca-key.pem</code>, run as the console user on purpose (owner gets <code>READ_CONTROL</code> for free).</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">7</span><span class="title">Credential refresh, live</span><span class="tag safe">read-only</span></div>
+    <div class="desc"><code>phase-b-cred-watcher.ps1</code> — ages the cached user-JWT sidecar to flip <code>credential_requested</code>, confirms the daemon notices and rewrites <code>broker.json</code>.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">8</span><span class="title">Config-delta apply, live</span><span class="tag destructive">destructive</span></div>
+    <div class="desc"><code>phase-b-config-apply.ps1</code> — exercises the Windows ownership-reassignment write path (<code>SetSecurityInfo</code>); also proves a hostile delta naming <code>.ssh/authorized_keys</code> is refused. Backs up/restores the real <code>.codex\config.toml</code> itself.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">9</span><span class="title">MCP leg — <code>--mcp-server</code> stdio relay</span><span class="tag safe">read-only</span></div>
+    <div class="desc">Drives <code>ai-broker-mon --mcp-server</code> directly over newline-JSON-RPC stdio, standing in for an agent (Codex isn't installed on the VM). Runs under a 60s watchdog job — a hang itself counts as a finding (likely interactive OIDC on a stale cached credential).</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">10</span><span class="title">Negative case — <code>broker.json</code> protocol-version mismatch</span><span class="tag safe">read-only</span></div>
+    <div class="desc"><code>phase-c-protocol-mismatch.ps1</code> — hand-writes a bad <code>protocol_version</code> into a throwaway sandboxed <code>--control</code> process (own scratch home); confirms <code>status.json</code> reports <code>ready:false</code> and drops the whole snapshot, not just the version field. Deliberately outside the <code>-SkipDestructive</code> gate — never touches the live service.</div>
+  </div>
+
+  <div class="gate-note">Everything below only runs when <code>-SkipDestructive</code> is <strong>not</strong> passed.</div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">11</span><span class="title"><code>ai_broker.enabled=false</code> transition</span><span class="tag destructive">destructive</span></div>
+    <div class="desc"><code>phase-c-negative-setup.ps1</code> / <code>phase-c-negative-flip.ps1</code> — flips the toggle on a live broker, confirms it's reaped and stopped; restores <code>enabled=1</code> and polls up to 90s for the daemon's heartbeat to respawn it.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">12</span><span class="title">Parent-death watchdog</span><span class="tag destructive">destructive</span></div>
+    <div class="desc"><code>phase-c-watchdog.ps1</code> — kills only <code>--control</code>; confirms the <code>--llm-proxy</code> child notices and exits within seconds. Restarts the service afterward.</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">13</span><span class="title">Graceful proxy shutdown</span><span class="tag destructive">destructive</span></div>
+    <div class="desc">Stop/start cycle on the service; confirms port <code>8788</code> releases cleanly on stop and rebinds successfully on start (proof the previous child didn't orphan it).</div>
+  </div>
+
+  <div class="step">
+    <div class="step-head"><span class="num">14</span><span class="title"><code>--recover</code> — stray-process cleanup + config strip</span><span class="tag destructive">destructive · last</span></div>
+    <div class="desc"><code>phase-d-recover.ps1</code> — dry-run first (must change nothing), then the real run: kills both broker processes, strips Codex's <code>[mcp_servers.zax]</code> entry, then forces a fresh settings frame so the daemon respawns and re-wires the agent's config automatically.</div>
+  </div>
+
+  <h2>Not run automatically</h2>
+  <div class="manual">
+    <div class="step">
+      <div class="step-head"><span class="title">Negative case — nobody logged on</span><span class="tag excluded">manual only</span></div>
+      <div class="desc">Needs a real RDP logoff of the running session. Run by hand: <code>phase-e-nobody-setup2.ps1</code> (elevated) → log off → <code>phase-e-nobody-check2.ps1</code> after logging back in. This is the path that surfaced <strong>finding D</strong> — a permanent SYSTEM-context zombie broker that never self-heals.</div>
+    </div>
+    <div class="step">
+      <div class="step-head"><span class="title">Reboot-survival check</span><span class="tag excluded">opt-in: <code>-IncludeReboot</code></span></div>
+      <div class="desc">Restarts the VM the script is running on. Off by default; follow up with <code>phase-b-prep.ps1</code> then <code>phase-b-verify.ps1</code> after it comes back.</div>
+    </div>
+  </div>
+
+  <footer>Generated from <code>commands\run-e2e-suite.ps1</code> — AI Broker (AI Gateway) Windows E2E orchestrator, ai-protect repo.</footer>
+</main>
+</body>
+</html>

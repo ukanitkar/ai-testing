@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Broker — Windows E2E Runbook</title>
+<style>
+  :root{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0; --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;  --gold-soft:#f9efd6;
+    --crit:#a63a2e;  --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;    --ok-soft:#e0f2e8;
+    --code-bg:#eef4f5;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--ground); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:960px; margin:0 auto; padding:52px 26px 120px}
+  p,li{max-width:76ch}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header.doc{border-bottom:2px solid var(--ink); padding-bottom:22px}
+  .kick{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 14px}
+  h1{font:700 1.95rem/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.03em; margin:0 0 12px; text-wrap:balance}
+  .sub{color:var(--muted); font-size:1.02rem; margin:0 0 20px; max-width:70ch}
+  .meta{display:flex; flex-wrap:wrap; gap:6px}
+  .chip{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:5px 9px; border-radius:4px; background:var(--panel2); color:var(--muted); white-space:nowrap}
+  .chip.ok{background:var(--ok-soft); color:var(--ok)} .chip.warn{background:var(--gold-soft); color:var(--gold)} .chip.crit{background:var(--crit-soft); color:var(--crit)}
+  h2{font:700 1.24rem/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.02em; margin:50px 0 4px; padding-top:15px; border-top:1px solid var(--line); text-wrap:balance}
+  h2 .n{color:var(--accent)}
+  h3{font:600 .82rem/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.05em; text-transform:uppercase; margin:22px 0 6px; color:var(--faint)}
+  p{margin:12px 0} ul,ol{margin:10px 0; padding-left:22px} li{margin:6px 0} li::marker{color:var(--faint)}
+  strong{font-weight:650} code{font:500 .86em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code-bg); padding:.1em .38em; border-radius:3px}
+  a{color:var(--accent)}
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:6px; padding:14px 16px; overflow-x:auto; font:500 12.7px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; margin:12px 0}
+  pre code{background:none; padding:0}
+  .callout{background:var(--panel); border:1px solid var(--line); padding:14px 16px; border-radius:6px; margin:18px 0}
+  .callout.warn{background:var(--gold-soft); border-color:transparent} .callout.crit{background:var(--crit-soft); border-color:transparent} .callout.ok{background:var(--ok-soft); border-color:transparent}
+  .callout .lbl{display:block; margin-bottom:6px; font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--gold)}
+  .callout.crit .lbl{color:var(--crit)} .callout.ok .lbl{color:var(--ok)} .callout p:first-child{margin-top:0} .callout>:last-child{margin-bottom:0}
+  .tablewrap{overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:6px}
+  table{border-collapse:collapse; width:100%; font-size:.86rem; min-width:560px}
+  th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:var(--panel); font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  tbody tr:last-child td{border-bottom:none} td:first-child{color:var(--ink)}
+  .st{font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:3px 7px; border-radius:4px; white-space:nowrap}
+  .st.ok{background:var(--ok-soft); color:var(--ok)} .st.warn{background:var(--gold-soft); color:var(--gold)} .st.crit{background:var(--crit-soft); color:var(--crit)}
+  footer{margin-top:52px; padding-top:16px; border-top:1px solid var(--line); color:var(--faint); font:600 12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="doc">
+  <p class="kick">AI-Broker × AI-Protect · Windows end-to-end testing</p>
+  <h1>Windows E2E Runbook</h1>
+  <p class="sub">Everything needed to reproduce or continue the Windows end-to-end test of the ai-broker: where the executables, configs, and logs live (dev laptop and VM), the diagnostic commands that actually cracked each problem, the defects found and fixed, and the completed-vs-remaining test checklist.</p>
+  <div class="meta">
+    <span class="chip">repo ai-protect</span>
+    <span class="chip mono">branch feat/ai-broker-beyond-claude</span>
+    <span class="chip mono">tip fd311066</span>
+    <span class="chip ok">Path A verified (direct run)</span>
+    <span class="chip ok">Path B verified (SYSTEM service → user drop → 200 Pong!)</span>
+  </div>
+</header>
+
+<h2><span class="n">1 ·</span> Test topology</h2>
+<p>Two machines: the <strong>dev laptop</strong> (builds, holds the git clone) and the <strong>disposable VM</strong> <code>EC2AMAZ-VRAE5E8</code> (Windows Server 2025, runs everything). The laptop's clone is mounted into the VM's RDP session via <code>subst Z: …\ai-protect</code> + <code>drivestoredirect:s:Z:</code>, so the VM reads it at <code>\\tsclient\Z\</code> — no S3 relay needed. Two VM accounts: <code>Administrator</code> (elevation for <code>sc.exe</code> / process inspection, reached via <code>runas</code> from inside umesh's session) and <code>umesh</code> (the non-admin console user the broker must drop to — must be the <em>Active</em> RDP session).</p>
+
+<h2><span class="n">2 ·</span> Executable paths</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Executable</th><th>Where</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td class="mono">&lt;clone&gt;\target\release\zscaler-ai-protect.exe</td><td>laptop (build output) → <span class="mono">\\tsclient\Z\target\release\</span> on the VM</td><td>the daemon (ai-warden), freshly built</td></tr>
+<tr><td class="mono">&lt;clone&gt;\target\release\ai-broker-mon.exe</td><td>laptop (build output)</td><td>the broker mono-exe</td></tr>
+<tr><td class="mono">C:\Users\umesh\work\zscaler-ai-protect.exe</td><td>VM (deployed)</td><td>what the <code>AiBrokerTest</code> service runs (its <code>binPath</code> points here)</td></tr>
+<tr><td class="mono">C:\Users\umesh\work\ai-broker-mon.exe</td><td>VM (deployed)</td><td>MUST sit next to the daemon exe — <code>spawn_broker</code> resolves it from the daemon's own directory</td></tr>
+<tr><td class="mono">C:\Program Files\Python312\python.exe</td><td>VM (machine-wide install)</td><td>runs the mock device plane; the winget per-user copy under Administrator's profile is unusable by umesh</td></tr>
+<tr><td class="mono">C:\SysinternalsSuite\PsExec64.exe</td><td>VM</td><td>historical only — <code>PsExec -s -i</code> can never satisfy <code>running_as_service()</code> (it attaches to the interactive session, not session 0); use the real service</td></tr>
+</tbody></table></div>
+<div class="callout warn">
+  <span class="lbl">The service, not PsExec</span>
+  <p>The privilege drop only engages when <code>running_as_service()</code> is true (process in session 0). Only a real Windows service does that:</p>
+  <pre><code>sc.exe create AiBrokerTest binPath= "C:\Users\umesh\work\zscaler-ai-protect.exe daemon --allow-unenrolled --storage http --server-url http://127.0.0.1:8080 --no-install-exts --no-install-hooks" start= demand
+sc.exe start AiBrokerTest</code></pre>
+</div>
+
+<h2><span class="n">3 ·</span> Configuration file paths</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>File (VM)</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\init.yaml</td><td>per-agent override — must carry <code>cloud: dev</code>; read from the process CWD (flat), separate from the bundled base config below</td></tr>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\config.yaml</td><td>optional MCP fallback list (empty for this test)</td></tr>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\config\{init.yaml, auth.yaml, ZaxDevRoot.crt}</td><td><strong>bundled SDK base config</strong> — copied from the repo's <code>ai-broker/config/</code>. <code>sdk_config::init()</code> looks in <code>./config/</code> relative to CWD (the compiled-in <code>CARGO_MANIFEST_DIR</code> path is the laptop's, useless on the VM). Path A launches with CWD = <code>~\.ai-broker</code> so both this and the flat <code>init.yaml</code> resolve</td></tr>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\llm-proxy.token</td><td>per-install secret; the leading path segment of every proxy URL (<code>https://127.0.0.1:8788/&lt;token&gt;/v1/…</code>)</td></tr>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\.credentials.json</td><td>cached ZAX credentials after OIDC; lets a service-spawned broker skip interactive login</td></tr>
+<tr><td class="mono">C:\Users\umesh\.codex\config.toml</td><td>Codex agent config the broker wires MCP into (<code>register_agent</code> report target)</td></tr>
+<tr><td class="mono">ai-broker\scripts\dev_device_plane.py <span style="color:var(--faint)">(repo)</span></td><td>mock device plane — stdlib-only python, serves <code>ai_broker.enabled=true</code> on <code>:8080</code>. Three env knobs, all opt-in so the default payload is unchanged: <code>AI_BROKER_ENABLED=0</code> (off path); <strong><code>CONFIG_VERSION=n</code></strong> — required to push a new frame to an <em>already-running</em> daemon, which only re-fetches <code>/config</code> when the heartbeat advertises a version it doesn't hold, so flipping a toggle alone is invisible; <strong><code>HEARTBEAT_INTERVAL_SECONDS=60</code></strong> — collapses settings-change latency from the 600&nbsp;s default to the 60&nbsp;s floor (<code>services::heartbeat</code> clamps to [60,&nbsp;21600] and warns outside). Note the daemon must <em>receive</em> a cadence before it can use one, so the first delivery needs a service restart (which heartbeats immediately)</td></tr>
+<tr><td class="mono">commands\path-a.ps1 · path-a-curl.ps1 · path-b.ps1 · path-b-redeploy3.ps1 <span style="color:var(--faint)">(repo)</span></td><td>the test scripts (run via <code>\\tsclient\Z\commands\…</code>); redeploy3 documents the stop→kill→copy→hash-verify→start cycle</td></tr>
+</tbody></table></div>
+
+<h2><span class="n">4 ·</span> Log file paths</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Log (VM)</th><th>Written by</th><th>What lands there</th></tr></thead>
+<tbody>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\logs\zax.log</td><td>broker (SDK tracing)</td><td>OIDC, register/activate/token-exchange, proxy listening, control-plane traffic. The single most useful log</td></tr>
+<tr><td class="mono">C:\ProgramData\ZscalerAIProtect\daemon.log</td><td>daemon (under SCM)</td><td>heartbeat/config fetch, broker spawn + privilege-drop outcome, <code>start_up ← ready=…</code>, register pushes. Elevated read (ProgramData)</td></tr>
+<tr><td class="mono">C:\Users\umesh\.ai-broker\logs\llm-proxy-child.log</td><td>spawned --llm-proxy child (new this session)</td><td>the child's stdout/stderr — a headless parent's inherited stdio is void, so early panics/CLI errors used to vanish entirely</td></tr>
+<tr><td class="mono">C:\ai-broker-test\device-plane.log</td><td>mock device plane (redirected)</td><td>request log. MUST be file-redirected: an interactive console blocked on QuickEdit once froze every handler thread and hung the whole daemon pipeline</td></tr>
+</tbody></table></div>
+
+<h2><span class="n">5 ·</span> Diagnostic commands used, and why each one</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Command</th><th>What it answers</th></tr></thead>
+<tbody>
+<tr><td class="mono">query user</td><td>which session is <em>Active</em> vs <em>Disc</em>, and its ID. Caught both "umesh has no session at all (runas ≠ login)" and the stale-disconnected-admin-session bug</td></tr>
+<tr><td class="mono">Get-Process ai-broker-mon,zscaler-ai-protect -IncludeUserName | Select Id,ProcessName,UserName,SI</td><td><strong>the privilege-drop verdict</strong>: daemon must be SYSTEM/session 0, broker must be the console user/their session. Needs an elevated shell (<code>-IncludeUserName</code> requires it; WMI's <code>GetOwner()</code> returns error 2 cross-session — don't use it)</td></tr>
+<tr><td class="mono">sc.exe query AiBrokerTest · sc.exe stop/start</td><td>service state; STATE 4 RUNNING is up. <code>stop</code> is asynchronous — kill leftover processes and re-check before copying over the exe (file-in-use bites otherwise)</td></tr>
+<tr><td class="mono">Get-FileHash &lt;exe&gt; -Algorithm SHA256</td><td>is the binary on the VM actually the build just made? Stale-copy false negatives burned two debugging rounds before this became mandatory in every redeploy script</td></tr>
+<tr><td class="mono">netstat -ano | findstr :8788 (or :8080)</td><td>is anything LISTENING, and which PID owns it. Also exposed the CLOSE_WAIT/FIN_WAIT_2 pile-up when the mock's console froze</td></tr>
+<tr><td class="mono">curl.exe -s http://127.0.0.1:8080/health · …/endpoint/v1/config</td><td>mock device plane liveness + the <code>ai_broker.enabled=true</code> payload. (<code>curl.exe</code>, not <code>Invoke-WebRequest</code> — PS 5.1's IE-engine parsing hangs on JSON on a fresh server)</td></tr>
+<tr><td class="mono">Select-String -Path daemon.log -Pattern "launched ai-broker-mon|could not start|start_up"</td><td>the daemon's own record of the spawn outcome and the broker's <code>ready</code> answer — searched over the whole file, not just the tail</td></tr>
+<tr><td class="mono">Get-Content zax.log -Tail N</td><td>broker-side progress: OIDC stages, agent_id, "proxy listening", control traffic</td></tr>
+<tr><td class="mono">temporary in-code probes → C:\ai-broker-test\*.log</td><td>when logs are structurally silent, write to an absolute path from inside the failing function: (1) proved <code>start_llm_proxy</code> was reached and showed <code>home=…systemprofile…</code>; (2) showed <code>USERPROFILE</code> was correct → indicted <code>dirs::home_dir()</code>/pushed home, not the environment; (3) captured <code>spawn()=Ok(pid)</code> → not a spawn failure; (4) captured <code>child exited early: ExitStatus(2)</code> → CLI/permission class; (5) captured <code>open_result=Err(Access is denied)</code> against systemprofile → root cause. All removed after the fix; the exit-status capture was kept permanently as <code>tracing::warn!</code></td></tr>
+</tbody></table></div>
+
+<h2><span class="n">6 ·</span> Problems found and fixed</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>#</th><th>Problem</th><th>Fix</th><th>Commit</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>CreateProcessAsUserW</code> failed <code>ERROR_FILE_NOT_FOUND</code>: <code>AI_BROKER_BIN</code> had no <code>.exe</code> suffix — <code>lpApplicationName</code> resolution doesn't auto-append it (the plain-spawn fallback's <code>lpCommandLine</code> path does, masking it)</td><td class="mono">EXE_SUFFIX in spawn_broker (ai_broker_launch.rs)</td><td class="mono">33660e06</td></tr>
+<tr><td>2</td><td>a stale <em>disconnected</em> admin RDP session could win over the genuinely <em>active</em> user — <code>active_session_ids()</code> had no state ordering and callers take the first token that resolves</td><td class="mono">sort WTSActive first (windows_session.rs)</td><td class="mono">33660e06</td></tr>
+<tr><td>3</td><td><strong>the Path B blocker:</strong> the SYSTEM daemon computed <code>broker_home()</code> from its own identity → pushed <code>…\config\systemprofile\.ai-broker</code> in <code>start_up</code> → broker adopted it as <code>ZAX_DEMO_HOME</code> (overriding everything) → the spawned <code>--llm-proxy</code> child died exit 2, "Access is denied", before its logger existed → daemon only ever saw a 20s timeout</td><td class="mono">broker_home() resolves the active console user's home when running as a service (new active_console_user_home() / console_user_home()); same fix applied to the macOS-root arm</td><td class="mono">fd311066</td></tr>
+<tr><td>4</td><td><code>dirs::home_dir()</code> (SHGetKnownFolderPath, hToken=NULL) observed resolving to systemprofile inside a CreateProcessAsUser child whose token and environment were both correct</td><td class="mono">%USERPROFILE% wins on Windows (mon/paths.rs home())</td><td class="mono">fd311066</td></tr>
+<tr><td>5</td><td><code>canonicalize()</code> prepends <code>\\?\</code>, which <code>CreateProcessW</code> does not support — a broker re-invoking itself through that string can silently fail to spawn</td><td class="mono">strip_verbatim_prefix in resolve_self_command()</td><td class="mono">fd311066</td></tr>
+<tr><td>6</td><td>total silence on child failure: headless parent → child stdout/stderr void; child dies pre-logger; daemon reports only "did not report listening in time"</td><td class="mono">child stdio → logs/llm-proxy-child.log; exit status logged via tracing::warn</td><td class="mono">fd311066</td></tr>
+<tr><td>7</td><td>SDK init failed on the VM: "Could not locate bundled config/init.yaml" — the only portable lookup is <code>./config/</code> relative to CWD, never provisioned on the VM</td><td class="mono">deployment fix (copy ai-broker/config/ + launch CWD), not code — see §3</td><td>—</td></tr>
+<tr><td>8</td><td>three Windows compile breaks in code authored on macOS (unconditional unix re-export; lsof-only port probe; libc::rusage example), plus 9 test failures then <strong>mis-attributed to elevation</strong>.<br><span style="color:var(--crit)">⚠️ The elevation label was wrong for eight of the nine</span> — they hardcoded a nonexistent owner and were fail-closed on Windows at any privilege level. Corrected in <code>8e8230fc</code>; see the two-axis callout above. The skip-guards added here masked a real bug rather than accommodating an environment.</td><td class="mono">cfg gates, honest Windows stubs, umi_bench-style example gating; the guards were later replaced by a real fixture fix (test_os_user) + an honest, verified guard</td><td class="mono">04888e50, corrected by 8e8230fc</td></tr>
+<tr><td>9</td><td><strong>Ownership reassignment had NEVER worked on Windows.</strong> <code>write_atomic</code> opened its temp file with <code>.write(true)</code> → <code>GENERIC_WRITE</code> (<code>0x00120116</code>), which does not include <code>WRITE_DAC</code> (<code>0x40000</code>) or <code>WRITE_OWNER</code> (<code>0x80000</code>) — and <code>SetSecurityInfo</code> requires exactly those for the information classes passed. It is a <em>handle</em>-access failure, so no amount of privilege can rescue it: observed as <code>write …\.codex\config.toml: Access is denied. (os error 5)</code> from a LocalSystem daemon holding every relevant privilege, against a file whose DACL granted SYSTEM FullControl. <code>set_owner_by_path</code> had the identical defect. <em>Why <code>secure_file</code> was unaffected:</em> it uses the <strong>path</strong>-based <code>SetNamedSecurityInfoW</code>, which opens its own handle with the access it needs; <code>atomic_write</code> stays handle-based on purpose (avoiding a TOCTOU window), so the rights must be requested up front.</td><td class="mono">access_mode(FILE_GENERIC_WRITE | WRITE_DAC | WRITE_OWNER) at both open sites — kept alongside .write(true), which std still requires to validate create_new</td><td class="mono">this session</td></tr>
+</tbody></table></div>
+<div class="callout crit">
+  <span class="lbl">Why defect 9 survived so long — three layers of masking</span>
+  <p>Worth internalising, because the next bug of this shape will hide the same way:</p>
+  <ol>
+    <li><strong>The runtime failure is quiet.</strong> A failed apply is a <code>WARN</code> line plus a <code>.zip.failed</code> rename. Nothing fails loudly, nothing retries visibly.</li>
+    <li><strong>The unit test excused it.</strong> <code>write_atomic_with_owner_reassigns_ownership_when_privileged</code> tolerated <code>Err(e) if e.kind() == PermissionDenied</code>, believing it was accommodating a non-elevated runner. But <code>io::Error::from_raw_os_error(5).kind()</code> <em>is</em> <code>PermissionDenied</code> — so the real bug and the benign environment case were indistinguishable by <code>kind()</code> alone. They are trivially distinguishable by <code>raw_os_error()</code>: the privilege check builds a <em>custom</em> error (<code>None</code>), while <code>SetSecurityInfo</code> yields a real OS error (<code>Some(5)</code>). The test now asserts that, so this can never be excused again.</li>
+    <li><strong>The skip-guard added in commit <code>04888e50</code> excused it too.</strong> <code>can_reassign_ownership_here()</code> probes by calling <code>set_owner_by_path</code> — which carried the same defect — so it returned <code>false</code> even on an elevated runner, meaning the nine guarded tests would have skipped <em>forever</em>. That "fix" was papering over a genuine defect while appearing to accommodate an environment limitation.</li>
+  </ol>
+  <p><strong>The lesson:</strong> a test that tolerates an error class is only as good as its ability to distinguish the error it means to excuse from every other error that lands in the same class.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">Environment traps that cost real time (not code bugs)</span>
+  <ul>
+    <li><strong>Stale binary after redeploy</strong> — <code>sc.exe stop</code> is async and a SYSTEM process shrugs off a non-elevated <code>Stop-Process</code>; the copy then fails or silently keeps the old exe. Always: stop → force-kill → verify empty → copy → <strong>hash-compare</strong>.</li>
+    <li><strong>PS 5.1 reads BOM-less UTF-8 as ANSI</strong> — an em-dash's bytes decode into a curly quote, which PS treats as a string terminator: parse errors in a script that looks fine. Keep <code>.ps1</code> files pure ASCII.</li>
+    <li><strong>runas ≠ logged on</strong> — a <code>runas</code> shell creates no WTS session; the drop needs a real console/RDP login. And this VM allows only ONE concurrent RDP session (a second login kicks the first), so: log in as umesh, elevate <em>inside</em> that session via <code>runas /user:…\administrator powershell.exe</code>.</li>
+    <li><strong>Console-blocked mock server</strong> — QuickEdit select froze the python console, wedging every handler thread. Always redirect its output to a file.</li>
+    <li><strong>Interleaved script output</strong> — pipeline-object tables render after later <code>Write-Host</code> lines; when a check "looks empty", rerun it alone.</li>
+    <li><strong>Secret hygiene</strong> — one OpenAI key was exposed via an unmasked <code>Read-Host</code> (now <code>-AsSecureString</code> in path-a-curl.ps1) and rotated. Keys go in the caller's Authorization header only; never on a command line.</li>
+  </ul>
+</div>
+
+<h2><span class="n">6a ·</span> Open defects found by testing (not yet fixed)</h2>
+<p>Both trace to the <strong>same line</strong> — <code>wait_for_llm_proxy</code>'s blocking 20-second wait, called synchronously from inside <code>start_up</code>'s control handler.</p>
+<div class="callout crit">
+  <span class="lbl">A · <code>ready=false</code> misreported on the cold path</span>
+  <p><code>wait_for_llm_proxy</code> allows <code>Duration::from_secs(20)</code>. Observed: daemon spawned the broker at 21:40:58, gave up at 21:41:20 with <em>"local LLM proxy spawned but did not report listening in time"</em> — and the proxy reported listening at <strong>21:41:25</strong>, five seconds past the deadline. So the daemon latched a false negative for something that was healthy moments later.</p>
+  <p><strong>Why the deadline is sometimes too tight:</strong> this run needed a fresh OIDC round. The cached credential was near expiry, and with <code>offline_access</code> ungranted by the IdP (temp workaround&nbsp;#2) there is <em>no refresh token</em>, so the only renewal path left is interactive login. The 20&nbsp;s budget fits the <strong>warm</strong> path (valid cached credential → proxy up fast → <code>ready=true</code>, as seen the night before) but not the <strong>cold</strong> one.</p>
+</div>
+<div class="callout crit">
+  <span class="lbl">B · head-of-line blocking on the control channel</span>
+  <p>The same 20&nbsp;s wait stalls every <em>other</em> control request behind it. Two pushes of the identical code path, minutes apart:</p>
+  <div class="tablewrap"><table>
+  <thead><tr><th>push</th><th>observed</th><th>acked</th><th>elapsed</th></tr></thead>
+  <tbody>
+  <tr><td>organic, during <code>start_up</code></td><td class="mono">21:41:01.862847</td><td class="mono">21:41:20.374261</td><td><strong>18.5 s</strong></td></tr>
+  <tr><td>manual, channel idle</td><td class="mono">21:55:29.513820</td><td class="mono">21:55:29.514187</td><td><strong>0.4 ms</strong></td></tr>
+  </tbody></table></div>
+  <p>The tell is what the slow ack landed beside: <code>start_up ← ready=false</code> at <code>21:41:20.374015</code> — <strong>246&nbsp;µs earlier</strong>. The credential push could not complete until <code>start_up</code> released the channel. That is a circular wait: <code>start_up</code> waits on the proxy → the proxy needs a credential → the broker requests one → the daemon's push is queued behind <code>start_up</code>.</p>
+  <p>Benign <em>today</em> only because the credential source is a stub, so nothing useful was being delayed. <strong>With a real credential source this would actively defeat the push's purpose</strong> — the credential would exist but arrive ~19&nbsp;s late, after the proxy had already fallen back to interactive OIDC.</p>
+</div>
+<div class="callout">
+  <span class="lbl">One fix addresses both</span>
+  <p>Stop letting <code>start_up</code> block the control service: either return promptly with a pending/not-ready status and have the daemon re-poll for readiness, or move the wait off the control-handling path so the listener stays free to serve concurrent requests.</p>
+</div>
+
+<div class="callout crit">
+  <span class="lbl">C · no periodic self-heal for a broker that dies unexpectedly</span>
+  <p>Decided by reading the code before testing anything, then verified empirically rather than trusted: <code>ai_broker_launch::reconcile()</code> — the <strong>only</strong> function that reaps a dead broker and respawns it — has <strong>exactly one call site in the entire source tree</strong>, inside <code>on_settings_received</code>. The periodic scan-tick handler (<code>on_agent_rescan</code>) only checks <code>guard.is_some()</code>, never <code>has_exited()</code> — so it can push discovered agents at a broker it believes is running while that broker is actually dead.</p>
+  <p><strong>Confirmed live:</strong> after <code>--recover</code> killed the broker (see §7), it stayed dead for a full <strong>90 seconds</strong> of polling with <code>ai_broker.enabled</code> still <code>true</code> and the mock still serving the same config version — exactly as predicted, because <code>reconcile()</code> never got called. The moment <code>CONFIG_VERSION</code> was bumped and a new settings frame arrived, it respawned within one heartbeat.</p>
+  <p>The consequence for production: a broker killed by <em>anything</em> — a crash, an AV false-positive, OOM, an admin fat-fingering a kill — stays dead <strong>indefinitely</strong> if the tenant's <code>ai_broker</code> settings don't change, since <code>reconcile</code> is edge-triggered on a config-version <em>change</em>, not merely on receiving a heartbeat response. At the 600&nbsp;s default cadence that is already a real window; if the tenant simply never touches this setting, the window is unbounded.</p>
+  <p>Not filed as a fix here — it may be an intentional trade-off (avoiding a spurious respawn loop if the broker is failing fast for some other reason) rather than an oversight, and that's a product call, not a test-runbook one. Worth a decision either way: e.g. reap-and-respawn on the periodic scan tick too, or on every heartbeat regardless of version, or a dedicated liveness timer.</p>
+</div>
+
+<div class="callout crit">
+  <span class="lbl">D · the nobody-logged-on fallback can leave a permanent, self-inflicted zombie broker</span>
+  <p>The nobody-logged-on negative case (§7) exercised the SYSTEM-context fallback for real — see the full account there — and it surfaced something more consequential than the fallback path itself: the degraded broker it spawns does not fail fast, and does not self-correct once a user logs back in. <strong>My own prediction going in was wrong</strong>, worth saying plainly: I expected the fallback broker's interactive-OIDC attempt to hit <code>oidc.rs</code>'s bounded deadline and exit. It never does, because it never even gets there.</p>
+  <p>What actually happens, confirmed from the fallback broker's own log (readable only from an elevated shell, since its home resolved to <code>C:\Windows\system32\config\systemprofile\.ai-broker</code> — the documented, by-design consequence of <code>broker_home()</code> having no console user to resolve, not the systemprofile bug fixed on day 1): it reaches <code>start_up</code>, correctly reports <em>"NO user credential available — will use a cached refresh token if any, else interactive OIDC"</em>, configures the LLM route mapping, and successfully completes <code>register_agent(codex)</code> — <strong>MCP wiring succeeds independently of the credential path entirely</strong>. There is no <code>[auth] launching interactive OIDC</code> line, ever — not in this run, nor in four earlier occurrences of the identical signature found in the same log dating back to Aug 19. The LLM proxy — and whatever would trigger a real OIDC attempt — appears to initialize lazily, on first actual use; since nothing running as SYSTEM in session 0 ever sends it real LLM traffic, that path simply never fires. The broker doesn't crash, hang, or time out. It becomes a <strong>stable, indefinitely-running zombie</strong>: alive, responsive on its control socket (it even answered a later periodic agent-rescan push, <code>already registered — ignoring push</code>), genuinely MCP-wired, confirmed via <code>Get-Process -IncludeUserName</code> as <code>NT AUTHORITY\SYSTEM</code> — and permanently incapable of serving an LLM request (<code>Get-NetTCPConnection -LocalPort 8788</code> came back empty the entire time).</p>
+  <p><strong>And per finding C, nothing fixes this on its own.</strong> Once the zombie exists, <code>reconcile()</code> only ever asks "is it dead?" — never "is it in the wrong session?" — so even after the correct user logs back in and a fresh settings frame arrives, it sees <code>guard.is_some() && !has_exited()</code> and does nothing. Confirmed directly: with the zombie still alive, a forced version bump produced <strong>90 seconds of silence</strong>, zero redrop attempt. The only way out was manual — <code>Stop-Process</code> on the SYSTEM-owned pid from an elevated shell — after which the very next settings frame correctly reaped the now-genuinely-dead entry and dropped a proper broker into the user's session.</p>
+  <p>Net effect for production: any window where nobody is logged on when a settings frame lands — a reboot before anyone signs back in, a scheduled restart overnight, a kiosk/shared machine between shifts — can leave the box in a state where <code>ai_agents.mcp_servers</code> reports the agent as wired (register_agent succeeded) while the LLM leg is silently, permanently dead, and nothing in telemetry distinguishes this from a healthy broker short of noticing the missing 8788 listener. This compounds finding C rather than standing apart from it: the same missing "is this broker actually correct, not just alive" check is the root cause of both.</p>
+</div>
+
+<div class="callout crit">
+  <span class="lbl">Elevation is not a single axis — the suite cannot be green in one run</span>
+  <p>Windows testing here has tests pulling in <strong>opposite</strong> directions, and no single <code>cargo test</code> invocation satisfies both:</p>
+  <ul>
+    <li><strong>Needs elevation:</strong> the eight <code>permission_apply</code> tests and <code>app_capture</code>'s <code>write_user_config_creates_config_on_clean_profile</code> — they reassign file ownership, which requires <code>SeRestorePrivilege</code>. Guarded, so they skip cleanly when unprivileged.</li>
+    <li><strong>Needs <em>non</em>-elevation:</strong> <code>mcp_probe::helper</code>'s <code>a_user_owned_forged_settings_file_does_not_open_the_gate</code>. Its fixture needs a file owned by the calling <em>user</em>, but an elevated admin token's default owner for new objects is <code>BUILTIN\Administrators</code> — which <code>is_admin_owned</code> correctly trusts. So elevated, it asserts against a genuinely admin-owned file and fails while the product is behaving exactly as designed.</li>
+  </ul>
+  <p>Current state: non-elevated is green (1869/0, 8 skips) and is what CI sees; elevated is 1868/1 with that one known failure. The real fix for the odd one out is to set the owner SID explicitly rather than inherit the token default — feasible now that handle-based reassignment works.</p>
+  <p><strong>And the meta-lesson, which cost a full misdiagnosis:</strong> before skipping a test on an environment claim, confirm it actually <em>passes</em> in an environment that satisfies the claim. A guard never observed to unblock is indistinguishable from a permanently disabled test — and here the guard, the probe it called, and the fixture were all broken at once, so nothing objected.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">Observed but unexplained — proxy-child panics in the broken era</span>
+  <p><code>logs\llm-proxy-child.log</code> accumulated <strong>3 panics and 4 stack overflows</strong>, the panics being <code>failed to spawn thread: Os { code: 1450 } "Insufficient system resources"</code>. A healthy proxy writes <em>nothing</em> to this file (it logs via <code>tracing</code> to <code>zax.log</code>; only panic output reaches stdout/stderr), so every line in it is a crash.</p>
+  <p><strong>Not reproducible.</strong> Cleared the file, restarted the service, proxy came up listening — file stayed empty. So these date from the era before the <code>broker_home</code> fix, when the child was dying repeatedly. <strong>But the root cause was never identified:</strong> exit code 2, which is what the daemon actually observed then, matches neither a Rust panic (101) nor a stack overflow (<code>0xC00000FD</code>), so these crashes are a <em>separate</em> phenomenon from the failure we fixed. Thread exhaustion plus stack overflow is the signature of a spawn storm — and note <code>start_llm_proxy</code> spawns <code>&lt;self&gt; --llm-proxy</code>, so a <code>--llm-proxy</code> process reaching that path would recurse. Recorded rather than closed: if it is a latent threading bug it can resurface under different conditions.</p>
+  <p>Worth noting these were only ever visible because of the child stdout/stderr redirect added while chasing the earlier bug. Without it they went to a void.</p>
+</div>
+
+<h2><span class="n">7 ·</span> E2E checklist — done vs remaining</h2>
+<h3>Completed</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Step 0 — fresh release build, Z: mount, configs on VM</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td>Path A — direct <code>--llm-proxy</code> as umesh: OIDC → register (agent auto-approved, id stable per host) → activate → token exchange → TLS+token proxy → <code>200 "Pong!"</code></td><td><span class="st ok">DONE</span></td></tr>
+<tr><td>Path B — SYSTEM service (session 0) → CreateProcessAsUser drop → broker as umesh (session 3) → named-pipe control handshake <code>ready=true</code> → proxy listening in the user's home → <code>200 "Pong!"</code> through gateway.zsagenticdev.ai</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td>Privilege-drop ownership verification (daemon SYSTEM/0, broker umesh/3) — repeated across every redeploy</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td>TLS + per-install-token scheme exercised live (plus its 13 unit tests, incl. wrong/missing-token 401 and untrusted-CA handshake rejection)</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td>Unit suites green on Windows: ai-warden 1869 · ai-broker-mon 70 (regression tests added for fixes #1/#2)</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>secure_file owner-only DACL</strong> — <code>llm-proxy.token</code>, <code>.credentials.json</code>, <code>mitm-ca\mitm-ca-key.pem</code> all verified: <code>AreAccessRulesProtected=True</code>, exactly one non-inherited ACE granting the console user FullControl. Control case <code>mitm-ca\mitm-ca-cert.pem</code> (public cert, never passed to <code>write_private</code>) correctly shows the opposite — unprotected, 3 inherited ACEs (SYSTEM + Administrators + user) — proving the tightening actively <em>strips</em> SYSTEM/Administrators rather than inheriting a restrictive parent. Script: <code>commands\phase-a-acl.ps1</code></td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Privilege drop re-confirmed from a second angle</strong> — <code>.credentials.json</code> was written by the <em>service-spawned</em> broker and its Owner reads as the console user, independent of any process-ownership check</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Privilege drop survives a reboot</strong> — after an EC2 reboot the daemon logged <code>launched ai-broker-mon in the user session</code> and both broker processes (control broker + its <code>--llm-proxy</code> child) came up as the console user in the freshly-renumbered session, daemon still SYSTEM/session&nbsp;0</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>The 9 skip-guarded tests, run elevated</strong> — executed for the first time ever, and <strong>corrected an earlier misdiagnosis of my own</strong>. Eight failed for a reason that had nothing to do with elevation: they hardcoded <code>"tester"</code> as the write's owner, a nonexistent account, which is <em>fail-closed on Windows</em> (unresolvable name aborts the whole write) while degrading gracefully on Unix. They could not have passed at any privilege level. <code>04888e50</code> had labelled all nine "elevation-dependent" — true only of the one that takes its owner from <code>owner_of(home)</code>. Fixed with a <code>test_os_user()</code> helper (23 sites). Now: <strong>non-elevated 1869 pass / 0 fail</strong> with 8 honest skips, <strong>elevated 1868 pass</strong> with all eight genuinely executing. Commit <code>8e8230fc</code></td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Negative case: <code>PROTOCOL_VERSION</code> mismatch refuses cleanly</strong> — staged by building the broker with <code>PROTOCOL_VERSION=2</code> (it lives in the shared <code>protocol</code> crate both binaries link) against the deployed v1 daemon. All four properties held, checked as <em>new</em> log lines against a baseline: broker logged the mismatch, daemon logged <code>start_up rejected by broker … aborting handshake</code>, <strong><code>register_agent</code> count unchanged at 387</strong>, and nothing on 8788. Three details worth keeping: it fails in <strong>157&nbsp;µs</strong>, not by timeout — the contract's stated intent ("fail fast … instead of a cryptic parse failure later") verified rather than assumed; the zero register_agent pushes is the property that actually matters, since pushing config to a version-mismatched peer is how malformed agent config would reach disk; and the broker <em>survived</em> at <code>SI 2</code>, so spawn and privilege drop both succeeded and only the handshake rejected — the failure is scoped, not cascading. Script: <code>commands\phase-c-protocol-mismatch.ps1</code> (self-restoring)</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Negative case: <code>ai_broker.enabled=false</code> stops a LIVE broker</strong> — the enabled→disabled <em>transition</em>, not merely a fresh start with the toggle off. Fully traceable: <code>heartbeat: cadence 600s → 60s</code> → 60&nbsp;s later <code>config_version 2 differs from held 1 — fetching /config</code> → <code>[ai-broker] stopped ai-broker-mon (ai_broker.enabled=false)</code> → <code>settings_apply: ai_broker.enabled = false</code>. Broker gone, 8788 released. Also incidentally demonstrates full-snapshot semantics: <code>mcp_discovery_enabled = false</code> was applied although the mock never sends that key. Scripts: <code>commands\phase-c-negative-setup.ps1</code> then <code>-flip.ps1</code></td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong><code>--recover</code> — stray-process cleanup + config-strip, live on Windows</strong> — every claim verified against a before/after snapshot rather than trusted from the printed report alone. <strong>Dry run first</strong>: reported 2 live processes + port 8788 held + 3 agents that would be stripped + credentials that would be removed, and the after-snapshot proved it changed <em>nothing</em> (one wording quirk found: <code>handle_home</code>'s dry-run branch prints <code>[ok] removed cached credentials</code> in the past tense even though the file survives — a <code>dry_run || remove_file(...)</code> short-circuit, harmless but misleading next to every other line's correct "would remove" phrasing). <strong>Real run</strong>: both live processes gone (Toolhelp32 sweep + self-exclusion — the invoking process correctly spared itself), port released, <code>.credentials.json</code> gone, and codex's <code>[mcp_servers.zax]</code> entry actually removed from <code>config.toml</code> (confirmed by content diff, not just the log line). Exit code 0. Script: <code>commands\phase-d-recover.ps1</code> (self-contained: dry run → real run → the self-heal probe below → forces and verifies full recovery, so the box is never left mid-teardown).<br><strong>Full auto-recovery traced end to end after the forced respawn:</strong> fresh OIDC (no refresh token, as expected) → brand-new <code>agent_id</code> registered (the wiped sidecar took the old identity with it) → <code>status="approved"</code> on the very first poll, no manual approval needed this time, unlike the <code>--mcp-server</code> relay's distinct identity → ACTIVATE → EXCHANGE → proxy listening on 8788 → <code>agent 'codex' REGISTERED as 'Codex CLI' — MCP wired</code>, all in <strong>under 5 seconds</strong>. Nothing manual required to bring the box back to full health. Independently confirmed from the <em>daemon's own</em> record of the reply (not just the broker's self-report): the <code>register_agent(codex)</code> push logged <code>"change":"wired"</code> — contrast the identical push six minutes earlier, pre-<code>--recover</code>, which returned <code>"reports":[]</code>, <code>"message":"already registered — push ignored"</code>. That no-op → wired contrast is itself proof the strip was real: a fresh write is impossible unless the entry had genuinely been removed.</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>MCP leg — <code>--mcp-server</code> stdio relay, live on Windows</strong> — the Codex CLI is not installed on this VM, so rather than that detour the relay was driven directly over its newline-delimited JSON-RPC stdio (a mode with <em>zero</em> prior Windows coverage — every earlier test exercised <code>--llm-proxy</code> or <code>--control</code>, never this one). All 6 probes passed: <code>initialize</code> (advertises <code>capabilities.tools</code>), <code>ping</code>, <code>tools/list</code>, an unknown method → JSON-RPC <code>-32601</code>, and — the asymmetric half that proves the dispatcher isn't just echoing — a bare notification and a non-JSON line both drew <strong>no reply</strong> (exactly 4 replies for 6 inputs), with the non-JSON line logged as <code>non-JSON message ignored</code> rather than crashing the relay. Then a clean <code>stdin closed; shutting down</code> on EOF.<br><strong>Bonus finding:</strong> this VM's <code>config.yaml</code> turned out to hold a real upstream MCP fleet, not an empty list — the relay dialed out to 14 configured servers, connected <strong>11</strong>, and aggregated <strong>233 tools</strong> under correct per-server namespacing (e.g. <code>zoltan-mcp-broker-zscalermcp_zia_list_cloud_firewall_rules</code>, a genuine internal ZIA/ZPA broker with 187 tools). The 3 that didn't connect were absorbed by the documented fail-open design — <code>advertising 233 tool(s) from 11/14 upstream(s) (connected/configured)</code> — so this incidentally exercised real dial-out and graceful degradation, not just the synthetic protocol surface. One approval-gate finding along the way: the relay registers as a <em>separate</em> agent identity from the <code>codex</code> one used elsewhere (per <code>init.yaml</code>, "this relay registers AS Claude Desktop"), so it sat polling <code>agents:status</code> every 10s under <code>pending_approval</code> with no visible timeout until manually approved — worth knowing since Claude Desktop spawns this mode non-interactively. Script: <code>commands\phase-c-mcp-stdio.ps1</code></td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Parent-death watchdog (orphan guard)</strong> — killed <em>only</em> the control broker; the <code>--llm-proxy</code> child exited within 2&nbsp;s and released port 8788, logging <code>[bridge] parent process 4056 exited; shutting down</code>. That is the watchdog thread unblocking from <code>WaitForSingleObject</code> on the parent handle — code that did not exist on Windows before <code>f5c3e367</code>, so nothing had ever exercised it. Script: <code>commands\phase-c-watchdog.ps1</code> (identifies the child by which PID owns the <code>:8788</code> listener rather than guessing)</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Graceful proxy shutdown</strong> — evidenced rather than directly instrumented: after <code>sc.exe stop</code>, the restarted proxy successfully <em>bound</em> 8788, which it could not have done had the previous child orphaned. The <code>llm-proxy.shutdown</code> flag file is also present in the broker home, confirming that path is used</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Config-apply watcher, live on Windows</strong> — single-writer staged-ZIP apply verified end-to-end, and it <strong>found defect&nbsp;9</strong> (the write failed <code>Access is denied</code> until the handle requested <code>WRITE_DAC|WRITE_OWNER</code>). After the fix: <code>wrote C:\Users\umesh\.codex\config.toml as user 'umesh'</code> → <code>applied 1 staged config file(s)</code>, from a SYSTEM daemon reassigning ownership to a <em>different</em> user — the case no local test covers. The <strong>allowlist control also verified</strong>: a manifest naming <code>~\.ssh\authorized_keys</code> was refused (<code>not an allowlisted agent-config path</code>) with no file created. Script: <code>commands\phase-b-config-apply.ps1</code>. <em>Note:</em> the printed Owner field is corroborating, not decisive — that file was already umesh-owned; the real proof is the absence of the error, since <code>set_owner</code> is called with <code>?</code> inside <code>write_atomic</code>.</td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Credential-request watcher, live on Windows</strong> — the daemon logs the polled path outright (<code>credential-request watcher polling C:\Users\umesh\.ai-broker\credential-request</code>, <em>not</em> systemprofile), directly verifying fix&nbsp;#3 on a path that had never executed on Windows before. Proven twice: <strong>organically</strong> (the broker touched the flag itself 3&nbsp;s after the watcher started, and the daemon served it unprompted) and <strong>on demand</strong> (manual touch observed within 2&nbsp;s). Full exchange is sub-millisecond when the channel is free — daemon sends → broker stages → daemon acks in 674&nbsp;µs. <code>available=false</code> throughout, as expected against the stub; the broker's graceful degradation (<code>no usable credential — leg will refresh/OIDC</code>) also confirmed. Script: <code>commands\phase-b-cred-watcher.ps1</code></td><td><span class="st ok">DONE</span></td></tr>
+<tr><td><strong>Negative case — nobody logged on</strong> — needed three attempts to get a clean result, each attempt's failure itself informative. <strong>Attempt 1</strong> raced the daemon's own ~60s heartbeat (armed the version bump, then a human needed longer than that to read instructions and log off — reconcile found the broker still alive and correctly no-opped, so the fallback was never reached). <strong>Attempt 2</strong> fixed the race with a version switch on a delay built into the mock's own clock (<code>DELAYED_CONFIG_VERSION</code>/<code>_AFTER_SECONDS</code>, dev_device_plane.py) — but the mock itself, launched as a plain child of the umesh session, died on logoff right along with the broker, so the daemon's heartbeat had nothing to answer it the whole time; confirmed by a total gap in daemon.log. <strong>Attempt 3</strong> ran the mock as a <code>SYSTEM</code>-context scheduled task instead (not tied to any logon, survives a logoff the way the real backend always would) — and that one worked cleanly: the exact warning fired at the exact predicted moment, <code>[ai-broker] no interactive session; starting ai-broker-mon as the daemon (SYSTEM) — user OIDC/config unavailable until a user logs in and reconcile re-runs</code>, immediately followed by <code>launched ai-broker-mon (pid 1360)</code> — the tell being the <em>absence</em> of "in the user session," the first time that phrasing had appeared anywhere in this whole test round. <code>Get-Process -IncludeUserName</code> confirmed <code>NT AUTHORITY\SYSTEM</code>, session 0, timestamped to the second against the daemon's own spawn log.<br>What happened next is finding&nbsp;D (see §6a) — the fallback broker didn't fail fast as predicted; it became a permanent zombie that <code>reconcile()</code> could not dislodge even after a real re-login, requiring a manual <code>Stop-Process</code> to recover. Also needed a mid-test correction on my part: the account-lockout side-quest (Administrator got locked out mid-test, root-caused to <code>aiptester-rdp</code>'s <code>0.0.0.0/0</code> RDP rule getting brute-forced from the open internet — its own description literally read "tighten after testing") led to tightening the security group to a specific IP, which then broke RDP entirely because that network routes HTTPS and raw TCP through different egress paths with different public IPs — resolved by reopening to <code>0.0.0.0/0</code> rather than continuing to guess. Scripts: <code>phase-e-nobody-setup2.ps1</code> / <code>-check2.ps1</code> / <code>-mock-wrapper.ps1</code> (the earlier two setup/check pairs are kept in the repo as the record of what didn't work and why)</td><td><span class="st ok">DONE</span></td></tr>
+</tbody></table></div>
+<h3>Not yet done</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Credential push end-to-end</td><td><span class="st crit">BLOCKED</span> <code>zax_user_credential::fetch</code> is still a stub daemon-side (backend item, not Windows-specific)</td></tr>
+<tr><td>VM cleanup when testing wraps</td><td><span class="st warn">TODO</span> <code>sc.exe stop/delete AiBrokerTest</code>, stop the mock, delete <code>C:\ai-broker-test\</code> diagnostic leftovers</td></tr>
+</tbody></table></div>
+
+<footer>AI Broker — Windows E2E runbook · feat/ai-broker-beyond-claude · 19 items verified live on EC2AMAZ-VRAE5E8 — every planned test complete except VM cleanup (Path A + Path B, privilege drop ×6, both watchers, DACLs, watchdog, shutdown, all three negative cases incl. nobody-logged-on, MCP stdio relay, --recover, elevated unit run) · 9 defects fixed, 4 open (A/B from start_up's blocking wait; C: no periodic broker self-heal; D: a nobody-logged-on fallback can leave a permanent zombie broker reconcile() can't self-correct) · remaining: VM cleanup; credential push blocked on a daemon-side stub</footer>
+</div>
+</body>
+</html>

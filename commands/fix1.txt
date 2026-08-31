@@ -1,0 +1,14 @@
+sc.exe stop AiBrokerTest
+Get-Process zscaler-ai-protect,ai-broker-mon -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 2
+Get-Process zscaler-ai-protect,ai-broker-mon -ErrorAction SilentlyContinue   # must be empty
+
+Copy-Item "\\tsclient\Z\target\release\zscaler-ai-protect.exe" "C:\Users\umesh\work\zscaler-ai-protect.exe" -Force
+(Get-FileHash "C:\Users\umesh\work\zscaler-ai-protect.exe" -Algorithm SHA256).Hash
+# should print: DEFBBEF7270D540E1DF4CB8FD61933316E86C764C2B1BD2179B04307598B7CDA
+
+curl.exe -s http://127.0.0.1:8080/health   # confirm mock device plane still up; restart it if not
+
+sc.exe start AiBrokerTest
+Start-Sleep -Seconds 5
+Get-Process ai-broker-mon -IncludeUserName -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, UserName, SI

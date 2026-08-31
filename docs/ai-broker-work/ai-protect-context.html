@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Broker — Windows Handoff</title>
+<style>
+  :root{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0; --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;  --gold-soft:#f9efd6;
+    --crit:#a63a2e;  --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;    --ok-soft:#e0f2e8;
+    --code-bg:#eef4f5;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--ground); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px; margin:0 auto; padding:52px 26px 120px}
+  p,li{max-width:74ch}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header.doc{border-bottom:2px solid var(--ink); padding-bottom:22px}
+  .kick{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 14px}
+  h1{font:700 1.95rem/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.03em; margin:0 0 12px; text-wrap:balance}
+  .sub{color:var(--muted); font-size:1.02rem; margin:0 0 20px; max-width:68ch}
+  .meta{display:flex; flex-wrap:wrap; gap:6px}
+  .chip{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:5px 9px; border-radius:4px; background:var(--panel2); color:var(--muted); white-space:nowrap}
+  .chip.ok{background:var(--ok-soft); color:var(--ok)} .chip.warn{background:var(--gold-soft); color:var(--gold)} .chip.crit{background:var(--crit-soft); color:var(--crit)}
+  h2{font:700 1.24rem/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.02em; margin:50px 0 4px; padding-top:15px; border-top:1px solid var(--line); text-wrap:balance}
+  h2 .n{color:var(--accent)}
+  h3{font:600 .82rem/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.05em; text-transform:uppercase; margin:22px 0 6px; color:var(--faint)}
+  p{margin:12px 0} ul,ol{margin:10px 0; padding-left:22px} li{margin:6px 0} li::marker{color:var(--faint)}
+  strong{font-weight:650} code{font:500 .86em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code-bg); padding:.1em .38em; border-radius:3px}
+  a{color:var(--accent)}
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:6px; padding:14px 16px; overflow-x:auto; font:500 12.7px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; margin:12px 0}
+  pre code{background:none; padding:0}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin:22px 0}
+  .card{background:var(--box); border:1px solid var(--box-line); border-radius:7px; padding:14px 15px}
+  .card .k{font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.09em; color:var(--faint); margin-bottom:6px}
+  .card .v{font:700 .95rem/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .callout{background:var(--panel); border:1px solid var(--line); padding:14px 16px; border-radius:6px; margin:18px 0}
+  .callout.warn{background:var(--gold-soft); border-color:transparent} .callout.crit{background:var(--crit-soft); border-color:transparent} .callout.ok{background:var(--ok-soft); border-color:transparent}
+  .callout .lbl{display:block; margin-bottom:6px; font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--gold)}
+  .callout.crit .lbl{color:var(--crit)} .callout.ok .lbl{color:var(--ok)} .callout p:first-child{margin-top:0} .callout>:last-child{margin-bottom:0}
+  .tablewrap{overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:6px}
+  table{border-collapse:collapse; width:100%; font-size:.86rem; min-width:520px}
+  th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:var(--panel); font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  tbody tr:last-child td{border-bottom:none} td:first-child{color:var(--ink)}
+  .st{font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:3px 7px; border-radius:4px; white-space:nowrap}
+  .st.ok{background:var(--ok-soft); color:var(--ok)} .st.warn{background:var(--gold-soft); color:var(--gold)} .st.crit{background:var(--crit-soft); color:var(--crit)}
+  .step{background:var(--box); border:1px solid var(--box-line); border-left:3px solid var(--accent); border-radius:6px; padding:6px 16px; margin:14px 0}
+  footer{margin-top:52px; padding-top:16px; border-top:1px solid var(--line); color:var(--faint); font:600 12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="doc">
+  <p class="kick">AI-Broker × AI-Protect · Session handoff</p>
+  <h1>AI Broker — Windows Handoff</h1>
+  <p class="sub">Context for continuing the ai-broker work on the Windows VM: what's built, the two Windows test paths (quick <code>--llm-proxy</code> smoke, and the full <strong>SYSTEM daemon → spawns broker as the logged-in user</strong> path), and the temp workarounds + backend gaps in play. §2 has what's new since the last refresh — most of it is platform-parity work done from a Mac, so it's <strong>compile/unit-test verified, not yet run on a real Windows box</strong> (§9 says exactly which pieces need that live check).</p>
+  <div class="meta">
+    <span class="chip">repo ai-protect</span>
+    <span class="chip mono">branch feat/ai-broker-beyond-claude</span>
+    <span class="chip mono">tip 4471de7f</span>
+    <span class="chip ok">LLM leg verified e2e (macOS)</span>
+    <span class="chip ok">Windows control = named pipe (built)</span>
+    <span class="chip ok">Windows privilege drop — verified live (33660e06)</span>
+    <span class="chip warn">macOS privilege drop + Windows ownership/TLS — built, VM-unverified</span>
+  </div>
+</header>
+
+<h2><span class="n">1 ·</span> What this is</h2>
+<p><strong>ai-broker</strong> (under <code>ai-protect</code>) makes AI coding agents route their <strong>MCP</strong> tool traffic and <strong>LLM</strong> inference through the <strong>ZAX gateway</strong> ("Optimus") so Zscaler can broker it. Crates:</p>
+<ul>
+  <li><code>ai-broker/mon</code> — bin <code>ai-broker-mon</code>, the mono-exe (bootstrap, <code>--mcp-server</code>, <code>--llm-proxy</code>, <code>--control</code>, <code>--sim-daemon</code>, <code>--recover</code>).</li>
+  <li><code>ai-broker/sdk</code> — lib <code>zax_sdk</code> (OIDC → register → activate → token-exchange, RFC 9421 signing).</li>
+  <li><code>ai-broker/protocol</code> — lib <code>zax_control_protocol</code>, the <strong>shared</strong> daemon↔broker wire contract (serde-only; the only ai-broker crate the root daemon <code>ai-warden</code> links). Carries <code>PROTOCOL_VERSION</code> — <code>start_up</code> refuses a version-mismatched peer.</li>
+</ul>
+<p>The daemon side is one subscriber, <code>src/subscribers/ai_broker_launch.rs</code>: it spawns + supervises the broker and drives the control socket (<code>start_up</code> → <code>register_agent</code>). <strong>Goal on Windows:</strong> run the daemon <em>elevated (SYSTEM)</em> and prove it launches <code>ai-broker-mon</code> as the <strong>logged-in user (umesh)</strong>, which then does OIDC and stands up the LLM proxy.</p>
+
+<h2><span class="n">2 ·</span> What landed since the last handoff</h2>
+<p>Four things changed the Windows picture — the old "control socket is unix-only" caveat is <strong>gone</strong>:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Commit</th><th>What</th></tr></thead>
+<tbody>
+<tr><td class="mono">8931b8fe</td><td>Shared <code>protocol</code> crate + <code>PROTOCOL_VERSION</code> handshake; <code>offline_access</code> discovery gate; as-built docs; temp workarounds.</td></tr>
+<tr><td class="mono">1ad75dc6 · cb64e10a</td><td><strong>Windows named-pipe control transport</strong> + end-to-end Windows control plane (sim_daemon, daemon client, pipe DACL + <code>ImpersonateNamedPipeClient</code>). <code>--control</code> / <code>--sim-daemon</code> now work on Windows.</td></tr>
+<tr><td class="mono">a15f55a2</td><td><strong>B — dev device-plane mock</strong> (<code>ai-broker/scripts/dev_device_plane.py</code>): serves the tenant config that turns the broker on. §5.</td></tr>
+<tr><td class="mono">b8bd5008</td><td><strong>C — Windows privilege drop</strong>: a SYSTEM daemon now spawns the broker in the console user's session via <code>CreateProcessAsUser</code>. §6.</td></tr>
+<tr><td class="mono">33660e06</td><td><strong>C verified live</strong> on a real Windows service (EC2AMAZ-VRAE5E8) — fixed two real bugs found there: <code>AI_BROKER_BIN</code> needed <code>.exe</code> for <code>CreateProcessAsUserW</code>'s <code>lpApplicationName</code> resolution (the plain-spawn fallback tolerated the bare name; this path didn't), and <code>active_session_ids()</code> needed WTSActive sorted first (a stale disconnected session could otherwise win). The "expect a possible last nit" callout below this table is resolved — leaving it as the historical record.</td></tr>
+<tr><td class="mono">e9ce3668 → 4471de7f</td><td><strong>This session, from a Mac — compile/unit-test verified only, no Windows VM run yet</strong> (§9 lists exactly what still needs one): macOS privilege drop for ai-broker (Linux stays root, deliberately — no portable console-user primitive, matches this codebase's existing stance for other features); <code>utils::atomic_write</code> now honors <code>owner</code> on Windows via <code>SetSecurityInfo</code>, the same way <code>fchown</code> already worked on Unix, wired into every hook-installer/subscriber write path; the credential-request <strong>and</strong> config-apply watchers (§9's old "Windows follow-up" row) are now fully ported; Windows secret-file ACL parity (CA key, credential cache, signing keypair); Windows graceful LLM-proxy shutdown + parent-death watchdog; Windows <code>--recover</code> stray-process cleanup; and the <code>--llm-proxy</code> listener now terminates TLS with a locally-minted leaf <strong>and</strong> requires a per-install token as the leading path segment (§5 step 7's curl example already reflects this) — closing a real gap where any other local account could otherwise connect to the loopback port and ride on the broker's signed identity.</td></tr>
+</tbody></table></div>
+<div class="callout ok">
+  <span class="lbl">C: verified live, not just compiled</span>
+  <p><code>spawn_broker</code>'s Windows arm + <code>BrokerProc::UserSession</code> is entirely <code>#[cfg(windows)]</code>, so the macOS unix build proves nothing about it on its own — but commit <code>33660e06</code> above is a real live run on a Windows service, not just a clean compile. The two bugs that run caught are already fixed. What's <strong>not</strong> re-verified live since: everything in the <code>e9ce3668 → 4471de7f</code> row — new code, same "macOS build is green" caveat applies to it now.</p>
+</div>
+
+<h2><span class="n">3 ·</span> The two backends (why B exists)</h2>
+<p>ai-protect talks to <strong>two</strong> independent backends. Keeping them straight is the key to the full-daemon test:</p>
+<div class="cards">
+  <div class="card"><div class="k">(a) Device plane</div><div class="v">ai-platform</div><p style="font-size:.82rem;color:var(--muted);margin:6px 0 0"><code>&lt;server-url&gt;/endpoint/v1/*</code> — heartbeat, config, events. <strong>This is the only source of <code>ai_broker.enabled</code></strong> — it arrives via <code>GET /config</code> → <code>settings.received</code>. No local file sets it. <strong>B mocks this.</strong></p></div>
+  <div class="card"><div class="k">(b) Control plane + gateway</div><div class="v">ZAX / Optimus</div><p style="font-size:.82rem;color:var(--muted);margin:6px 0 0"><code>api.&lt;cloud&gt;</code> (Vector register, Bumblebee activate) + <code>gateway.&lt;cloud&gt;</code> (Optimus). From <code>init.yaml</code> <code>cloud: dev</code> → <code>api.zsagenticdev.ai</code>. The broker (as umesh) talks to this — real dev backend, not mocked.</p></div>
+</div>
+<p>So the full daemon path is: <strong>B</strong> flips the broker on → the daemon (C) spawns the broker as umesh → the broker does the real OIDC + onboarding against (b) and stands up <code>--llm-proxy</code>.</p>
+
+<h2><span class="n">4 ·</span> Verified end-to-end (macOS, via <code>--sim-daemon</code>)</h2>
+<p>The full Codex LLM-leg chain ran green on macOS. A real inference call returned <strong>HTTP 200 <code>"pong"</code></strong> (<code>gpt-5.4-mini</code>) through broker → Optimus → OpenAI. Windows re-runs this same chain — Path A directly, or Path B end-to-end.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Stage</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>OIDC login (discovery-gated <code>offline_access</code>)</td><td><span class="st ok">OK</span> access token (no refresh token — §7)</td></tr>
+<tr><td>Vector register</td><td><span class="st ok">OK 200</span> via <code>agent_type=other</code> (workaround §7)</td></tr>
+<tr><td>Approval (pending_approval → approved)</td><td><span class="st ok">OK</span> via <code>approve_agent.py</code> (§8)</td></tr>
+<tr><td>Bumblebee activate → instance JWT</td><td><span class="st ok">OK 200</span></td></tr>
+<tr><td>Token-exchange → triple JWT</td><td><span class="st ok">OK 200</span> <code>intersected_caps=[]</code> (doesn't block forwarding)</td></tr>
+<tr><td>Proxy → Optimus → OpenAI</td><td><span class="st ok">200 pong</span></td></tr>
+</tbody></table></div>
+
+<h2><span class="n">5 ·</span> Windows Path A — quick <code>--llm-proxy</code> smoke</h2>
+<p>Fastest "does it build + run + LLM leg works on Windows" check. User-space, no daemon, no privilege drop. Skip to §6 if you want the full daemon path.</p>
+<ol>
+  <li><strong>Pull:</strong> <code>git checkout feat/ai-broker-beyond-claude &amp;&amp; git pull</code> (tip <code>4471de7f</code>+).</li>
+  <li><strong>Build:</strong> <code>cargo build -p ai-broker-mon</code> (MSVC toolchain).</li>
+  <li><strong>Config prereq:</strong> <code>--llm-proxy</code> needs <code>config.yaml</code> + <code>init.yaml</code> under <code>%USERPROFILE%\.ai-broker\</code> (else "run bootstrap"). Copy the two small files from a working macOS <code>~/.ai-broker/</code>; <code>init.yaml</code> must be <code>cloud: dev</code>.</li>
+  <li><strong>ZCC OFF</strong> — else it TLS-intercepts the gateway host → synthetic 502 masks the real result.</li>
+  <li><strong>Run</strong> (registers as Codex → <code>agent_type=other</code>):
+<pre><code>$env:ZAX_AGENT_ID = "codex"
+.\target\debug\ai-broker-mon.exe --llm-proxy --upstream https://api.openai.com</code></pre>
+  Complete the OIDC browser login yourself. (Omit <code>ZAX_AGENT_ID</code> → registers as <code>custom</code>, also allowed.)</li>
+  <li><strong>Approve</strong> — Windows mints a <em>different</em> <code>agent_id</code> (identity includes the host). Grab it from <code>%USERPROFILE%\.ai-broker\logs\zax.log</code> (<code>registered agent_id=…</code>), then approve (§8).</li>
+  <li><strong>Fire a call</strong> (key stays out of history). The proxy now terminates TLS with a
+  locally-minted leaf (same CA <code>mitm.rs</code> uses for the forward-proxy leg) and requires a
+  per-install token as the leading path segment — <code>-k</code> skips verifying our own self-signed
+  CA (fine for a local smoke test; use <code>--cacert %USERPROFILE%\.ai-broker\mitm-ca\mitm-ca-cert.pem</code>
+  instead of <code>-k</code> for a stricter check), and <code>$TOKEN</code> comes from
+  <code>%USERPROFILE%\.ai-broker\llm-proxy.token</code>:
+<pre><code>$K = Read-Host "OpenAI key"
+$TOKEN = Get-Content "$env:USERPROFILE\.ai-broker\llm-proxy.token"
+curl.exe -sSk "https://127.0.0.1:8788/$TOKEN/v1/responses" `
+  -H "authorization: Bearer $K" -H "content-type: application/json" `
+  -d '{\"model\":\"gpt-5.4-mini\",\"input\":\"pong\"}' -w "`n[http %{http_code}]`n"
+Remove-Variable K</code></pre>
+  Expect <strong>200</strong> with a <code>pong</code>. A <code>401</code> with no forwarded body means the
+  token was missing or wrong, not a gateway/provider rejection.</li>
+</ol>
+
+<h2><span class="n">6 ·</span> Windows Path B — full daemon → broker as umesh (the goal)</h2>
+<p>This exercises B + C: an <strong>elevated (SYSTEM) daemon</strong> receives <code>ai_broker.enabled=true</code> from the mock device plane and spawns <code>ai-broker-mon</code> <strong>as umesh</strong> (not SYSTEM), so the broker can do per-user OIDC.</p>
+<div class="callout crit">
+  <span class="lbl">To actually exercise the privilege drop, the daemon must be SYSTEM</span>
+  <p>C only crosses into the user session when <code>running_as_service()</code> is true (session 0 / SYSTEM). If you run the daemon as an <em>elevated admin in your own console session</em>, <code>running_as_service()</code> is false and it just plain-spawns the broker in that same session (still works, but does <strong>not</strong> test <code>CreateProcessAsUser</code>). Launch as SYSTEM via <code>PsExec -s -i</code> (Sysinternals) or install it as a Windows service. Be <strong>logged in at the console as umesh</strong> so there's an active session to drop into.</p>
+</div>
+<h3>Steps (PowerShell)</h3>
+<div class="step"><p><strong>1 · Build both binaries and co-locate them.</strong> <code>spawn_broker</code> resolves <code>ai-broker-mon.exe</code> from <em>the daemon exe's own directory</em>, so they must sit side by side.</p>
+<pre><code>cargo build -p ai-warden          # zscaler-ai-protect.exe (the daemon)
+cargo build -p ai-broker-mon      # ai-broker-mon.exe (the broker)
+# put ai-broker-mon.exe next to zscaler-ai-protect.exe:
+Copy-Item .\target\debug\ai-broker-mon.exe (Split-Path (Get-Command .\target\debug\zscaler-ai-protect.exe).Source)</code></pre></div>
+<div class="step"><p><strong>2 · Start the mock device plane (B)</strong> — this is what turns the broker on.</p>
+<pre><code>python ai-broker\scripts\dev_device_plane.py --port 8080
+# serves GET /endpoint/v1/config -> settings.ai_broker.enabled=true
+# (AI_BROKER_ENABLED=0 to test the off path)</code></pre></div>
+<div class="step"><p><strong>3 · ZCC OFF</strong> (the broker's real onboarding reaches Optimus).</p></div>
+<div class="step"><p><strong>4 · Run the daemon elevated as SYSTEM,</strong> pointed at the mock. <code>--allow-unenrolled</code> skips enrollment; <code>--no-install-*</code> keeps it from touching agent configs.</p>
+<pre><code># from an admin prompt, via Sysinternals PsExec (SYSTEM + interactive):
+psexec -s -i 1 -d "C:\path\to\zscaler-ai-protect.exe" daemon `
+  --allow-unenrolled --storage http --server-url http://127.0.0.1:8080 `
+  --no-install-exts --no-install-hooks</code></pre>
+<p style="font-size:.85rem;color:var(--muted)">Flow: heartbeat → sees <code>config_version</code> mismatch → fetches <code>/config</code> → <code>settings.received</code> → <code>ai_broker.launch</code> reconcile(enabled=true) → <code>spawn_broker</code> → (SYSTEM) <code>CreateProcessAsUser</code> → <code>ai-broker-mon --control --socket \\.\pipe\zscaler-ai-broker-control-…</code> → daemon drives <code>start_up</code> + <code>register_agent</code> over the pipe.</p></div>
+<div class="step"><p><strong>5 · Verify the drop worked.</strong> In Task Manager (Details tab, "User name" column) or PowerShell, confirm <code>ai-broker-mon.exe</code> runs as <strong>umesh</strong>, not SYSTEM:</p>
+<pre><code>Get-CimInstance Win32_Process -Filter "Name='ai-broker-mon.exe'" |
+  ForEach-Object { $_.GetOwner().User }   # -> umesh</code></pre>
+<p style="font-size:.85rem;color:var(--muted)">Broker log: <code>C:\Users\umesh\.ai-broker\logs\zax.log</code>. Daemon log shows <code>[ai-broker] launched ai-broker-mon in the user session</code>. If no user is logged on, or the crossing fails, the daemon logs a warning and falls back to a SYSTEM spawn — the next settings tick re-reconciles.</p></div>
+<div class="step"><p><strong>6 · Drive OIDC + the LLM call</strong> as in Path A (§5, steps 5–7): complete the browser login (as umesh), approve the new <code>agent_id</code> (§8), then curl the proxy for a <code>200 pong</code>.</p></div>
+
+<h2><span class="n">7 ·</span> Temporary workarounds in the code</h2>
+<p>Committed on the branch so the dev e2e works. <strong>Revert when the backend catches up.</strong></p>
+<div class="cards">
+  <div class="card"><div class="k">agent_type = other</div><div class="v">mon <code>common.rs</code></div><p style="font-size:.82rem;color:var(--muted);margin:6px 0 0">Vector's <code>validAgentType</code> lacks <code>codex</code> → register 400. Broker sends the allowed framework <code>other</code> (env <code>ZAX_AGENT_FRAMEWORK</code>, default <code>other</code>), keeping the real agent <em>name</em>. Revert to <code>a.id()</code> once vector adds the ids.</p></div>
+  <div class="card"><div class="k">offline_access gate</div><div class="v">sdk <code>oidc.rs</code></div><p style="font-size:.82rem;color:var(--muted);margin:6px 0 0">Requests <code>offline_access</code> only if discovery <code>scopes_supported</code> advertises it. <code>demotenant</code> advertises only <code>openid</code> → login succeeds but <strong>no refresh token</strong>. Fix is IdP-side (enable it on <code>zax.client</code>).</p></div>
+  <div class="card"><div class="k">ZAX_AUTO_APPROVE</div><div class="v">sdk <code>aid_base.rs</code> · unused</div><p style="font-size:.82rem;color:var(--muted);margin:6px 0 0">Opt-in header that would auto-approve at register (<code>x-agent-auto-approval</code>). Off by default; we approve via the script instead. Leave off.</p></div>
+</div>
+
+<h2><span class="n">8 ·</span> The approval script</h2>
+<p>An agent is <code>pending_approval</code> after register; the LLM leg can't activate until it's <code>approved</code>. Approve with the admin tool (does an <strong>admin</strong> OIDC login, then transitions the agent):</p>
+<pre><code>&lt;venv&gt;/bin/python zax-sdk-python/script/approve_agent.py --agent-id &lt;AGENT_ID&gt;</code></pre>
+<div class="callout warn">
+  <span class="lbl">Two gotchas</span>
+  <p><strong>1. The script's route was stale</strong> (404 on <code>…:transitionState</code>) — fixed to the deployed route <code>POST /vector/v1/admin/agent-operations/{id}/transition</code> body <code>{"status":"approved"}</code>. That fix lives only in the <em>macOS</em> <code>zax-sdk-python</code> checkout (separate repo, uncommitted). On Windows either apply the same 2-line fix, or run the fixed script <strong>from macOS</strong> with the Windows <code>agent_id</code> — approval is out-of-band, it just needs the id + admin login + dev registry.</p>
+  <p><strong>2.</strong> Needs the <code>zax-sdk-python</code> venv (<code>zax_client</code>/<code>httpx</code>/<code>yaml</code>) and <code>script/admin.yaml</code> pointed at <strong>dev</strong>. The <code>agent_id</code> is stable per host, so approve once out-of-band, then re-run — register returns <code>approved</code> immediately.</p>
+</div>
+
+<h2><span class="n">9 ·</span> Open items</h2>
+<p>First table is backend/IdP — not broker code. Second is what this session built that still needs a <strong>live Windows run</strong>, not just a clean compile (nothing here blocks Path A/B below, which already worked pre-session).</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Where</th><th>State</th></tr></thead>
+<tbody>
+<tr><td>Add <code>codex</code> to allowed frameworks</td><td>vector <code>internal/agentonboard/service.go:42</code></td><td><span class="st warn">owner evaluating</span> a 26-entry set</td></tr>
+<tr><td>Enable <code>offline_access</code> for refresh tokens</td><td>IdP OIDC client <code>zax.client</code> (demotenant)</td><td><span class="st warn">pending</span></td></tr>
+<tr><td>What does <code>intersected_caps</code> gate?</td><td>Bumblebee / gateway</td><td><span class="st warn">open Q</span> — empty today, doesn't block forwarding</td></tr>
+</tbody></table></div>
+<div class="tablewrap"><table>
+<thead><tr><th>Item</th><th>Where</th><th>State</th></tr></thead>
+<tbody>
+<tr><td>Unix privilege drop</td><td>broker <code>ai_broker_launch.rs</code> <code>spawn_broker</code> / <code>identity::home::console_user_uid</code></td><td><span class="st ok">macOS done</span> — <span class="st warn">Linux deliberate non-goal</span> (no portable console-user primitive without <code>loginctl</code>/utmp; accepted, not an oversight)</td></tr>
+<tr><td>Credential-request + config-apply watchers on Windows</td><td><code>ai_broker_launch.rs</code></td><td><span class="st ok">DONE</span> — both fully ported, all <code>#[cfg(any(unix, windows))]</code> now; compile/unit-test verified only</td></tr>
+<tr><td><code>SeRestorePrivilege</code> actually enabled on a LocalSystem token?</td><td><code>atomic_write::windows::enable_ownership_privileges</code></td><td><span class="st warn">assumed, not confirmed live</span> — the whole Windows ownership-transfer feature (config-apply watcher, hook_installer writes) depends on this holding</td></tr>
+<tr><td>Config-apply watcher: staged zip actually applies end-to-end on Windows, with correct on-disk ownership</td><td><code>ai_broker_launch.rs::apply_staged_zip_inner</code></td><td><span class="st warn">not run live</span> — unit-tested with the real current user, not the SYSTEM→console-user cross-privilege path</td></tr>
+<tr><td>LLM-proxy TLS + token: real handshake against a live agent, not just the test harness's own client</td><td><code>llm_leg.rs::do_llm_proxy</code></td><td><span class="st warn">not run live</span> — the 4 new end-to-end tests use a bare <code>reqwest</code> client, not Codex itself; also confirm Codex's OpenAI-compatible client actually preserves a base-URL path prefix when it appends its own endpoint path</td></tr>
+</tbody></table></div>
+
+<h2><span class="n">10 ·</span> Rules &amp; gotchas</h2>
+<ul>
+  <li><strong>ZCC off</strong> for any call that reaches Optimus (else synthetic 502).</li>
+  <li><strong>OIDC + API keys + passwords are yours to enter</strong>, not the assistant's — the assistant drives the build/wiring and hands you the exact commands; you do the interactive login and paste keys via <code>Read-Host</code> (never into shell history).</li>
+  <li><strong>Provider API key</strong> goes in the caller's <code>Authorization</code> header (broker forwards it unchanged); the ZAX identity is a separate signed header the broker adds.</li>
+  <li><strong>Scratch <code>CODEX_HOME</code></strong> if exercising register/MCP wiring, so the real <code>~/.codex</code> isn't touched.</li>
+  <li><strong>The Windows VM is the intended, disposable test box</strong> for running the daemon (that's the point of Path B). Still pass <code>--no-install-exts --no-install-hooks</code> so it doesn't rewrite agent configs. Do NOT run the daemon on your real dev machine.</li>
+  <li><code>agent_id</code> differs per host — the Windows registration is a new agent; approve <em>its</em> id.</li>
+</ul>
+
+<h2><span class="n">11 ·</span> Key files</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>File</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td class="mono">src/subscribers/ai_broker_launch.rs</td><td>daemon side — spawn/supervise (<code>BrokerProc</code>, incl. Windows <code>UserSession</code> handle), privilege drop (C), control handshake, discovery push</td></tr>
+<tr><td class="mono">src/platform/windows_session.rs</td><td>the <code>CreateProcessAsUser</code> primitive C reuses (<code>run_in_user_session</code>, <code>process_alive</code>, <code>terminate_process</code>, <code>running_as_service</code>)</td></tr>
+<tr><td class="mono">ai-broker/scripts/dev_device_plane.py</td><td><strong>B</strong> — the mock device plane that delivers <code>ai_broker.enabled</code></td></tr>
+<tr><td class="mono">ai-broker/protocol/src/lib.rs</td><td>shared wire contract (<code>zax_control_protocol</code>) + <code>PROTOCOL_VERSION</code></td></tr>
+<tr><td class="mono">ai-broker/mon/src/control/{listener,service,sim_daemon,transport}.rs</td><td>broker control server, handlers, test harness, unix-socket/named-pipe transport</td></tr>
+<tr><td class="mono">ai-broker/mon/src/common.rs</td><td><code>agent_metadata_for_leg</code> — the <code>agent_type=other</code> workaround</td></tr>
+<tr><td class="mono">ai-broker/mon/src/llm_leg.rs</td><td>the <code>--llm-proxy</code> reverse proxy — now TLS-terminating (<code>mitm::AlwaysResolve</code>) + token-gated (<code>load_or_create_token</code> / <code>configured_base_url</code> / <code>strip_token_prefix</code>)</td></tr>
+<tr><td class="mono">ai-broker/mon/src/mitm.rs</td><td>the local CA (shared by the forward-proxy MITM leg and, now, <code>--llm-proxy</code>'s own TLS)</td></tr>
+<tr><td class="mono">src/utils/atomic_write/{mod,unix,windows}.rs</td><td>ai-protect daemon — the cross-platform ownership-transfer primitive (<code>fchown</code> / <code>SetSecurityInfo</code>) everything in the <code>e9ce3668 → 4471de7f</code> row builds on</td></tr>
+<tr><td class="mono">ai-broker/sdk/src/common/secure_file.rs</td><td>Windows owner-only DACL for secret files (CA key, credential cache, signing keypair)</td></tr>
+<tr><td class="mono">ai-broker/sdk/src/authorization/oidc.rs</td><td><code>offline_access</code> discovery gate</td></tr>
+<tr><td class="mono">docs/ai-broker-{design,integration,interface-coverage}.html</td><td>full design docs (deeper context)</td></tr>
+<tr><td class="mono">docs/ai-broker-work/ai-broker-windows-watcher-port-design.md</td><td>this session's own design note for the credential/config-apply watcher port — superseded by §9 now that both are DONE, kept for the reasoning trail</td></tr>
+</tbody></table></div>
+
+<footer>AI Broker — Windows handoff · branch feat/ai-broker-beyond-claude @ 4471de7f · LLM leg verified e2e on macOS · Windows control = named pipe + privilege drop (C) verified live · this session's ownership/TLS/watcher-port work compile/unit-test verified, Windows VM run still pending</footer>
+</div>
+</body>
+</html>

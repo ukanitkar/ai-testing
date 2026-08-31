@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Broker × AI Protect — Integration Interface</title>
+<style>
+  :root{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0;
+    --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;   --gold-soft:#f9efd6;
+    --crit:#a63a2e;   --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;     --ok-soft:#e0f2e8;
+    --slate:#3f525c;  --slate-soft:#e6eef0;
+    --code-bg:#eef4f5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+      --line:#1d272c; --panel:#101a1e; --panel2:#16222a;
+      --box:#131f24; --box-line:#33454c;
+      --accent:#3fc6da; --accent-soft:#0c2a31;
+      --gold:#dfaf54;   --gold-soft:#2a2212;
+      --crit:#ef8275;   --crit-soft:#2d1a17;
+      --ok:#4ec98c;     --ok-soft:#0e2a20;
+      --slate:#8fa6b0;  --slate-soft:#16222a;
+      --code-bg:#101a1e;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a;
+    --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31;
+    --gold:#dfaf54;   --gold-soft:#2a2212;
+    --crit:#ef8275;   --crit-soft:#2d1a17;
+    --ok:#4ec98c;     --ok-soft:#0e2a20;
+    --slate:#8fa6b0;  --slate-soft:#16222a;
+    --code-bg:#101a1e;
+  }
+  :root[data-theme="light"]{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0;
+    --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;   --gold-soft:#f9efd6;
+    --crit:#a63a2e;   --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;     --ok-soft:#e0f2e8;
+    --slate:#3f525c;  --slate-soft:#e6eef0;
+    --code-bg:#eef4f5;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  .wrap{max-width:920px; margin:0 auto; padding:60px 28px 120px}
+  p,ul,ol{max-width:70ch}
+
+  header.doc{border-bottom:2px solid var(--ink); padding-bottom:24px}
+  .kicker{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 15px}
+  h1{font:700 2rem/1.14 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.035em; margin:0 0 13px; text-wrap:balance; max-width:26ch}
+  .sub{color:var(--muted); font-size:1.04rem; margin:0 0 22px; max-width:66ch}
+  .byline{display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; margin:0 0 18px; font:600 12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.02em; color:var(--muted)}
+  .byline .lbl{font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint)}
+  .byline .val{color:var(--ink)}
+  .meta{display:flex; flex-wrap:wrap; gap:6px}
+  .chip{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:5px 9px; border-radius:4px; background:var(--panel2); color:var(--muted); white-space:nowrap}
+  .chip.ok{background:var(--ok-soft); color:var(--ok)}
+  .chip.warn{background:var(--gold-soft); color:var(--gold)}
+  .chip.crit{background:var(--crit-soft); color:var(--crit)}
+
+  h2{font:700 1.28rem/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.02em; margin:54px 0 4px; padding-top:16px; border-top:1px solid var(--line); text-wrap:balance}
+  h3{font:600 .93rem/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.01em; margin:30px 0 6px; color:var(--accent)}
+  h2 + p, h3 + p{margin-top:10px}
+  p{margin:13px 0} ul,ol{margin:13px 0; padding-left:20px} li{margin:6px 0} li::marker{color:var(--faint)}
+  strong{font-weight:650} a{color:var(--accent); text-underline-offset:2px}
+  code{font:500 .87em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code-bg); padding:.12em .38em; border-radius:3px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:6px; padding:15px 17px; overflow-x:auto; font:500 12.8px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  pre code{background:none; padding:0}
+
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; margin:26px 0}
+  .card{background:var(--box); border:1px solid var(--box-line); border-radius:7px; padding:14px 15px}
+  .card .k{font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--faint); margin-bottom:7px}
+  .card .v{font:700 .98rem/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.01em}
+  .card .v.crit{color:var(--crit)} .card .v.ok{color:var(--ok)} .card .v.warn{color:var(--gold)}
+  .card .n{font-size:.8rem; color:var(--muted); margin-top:5px; line-height:1.5}
+
+  .tablewrap{overflow-x:auto; margin:20px 0; border:1px solid var(--line); border-radius:6px}
+  table{border-collapse:collapse; width:100%; font-size:.875rem; min-width:620px; font-variant-numeric:tabular-nums}
+  th,td{text-align:left; padding:10px 13px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:var(--panel); font:600 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.09em; color:var(--muted)}
+  tbody tr:last-child td{border-bottom:none} td:first-child{color:var(--ink)}
+  .dir{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:nowrap}
+  .dir.out{color:var(--accent)} .dir.in{color:var(--gold)}
+
+  .callout{background:var(--panel); border:1px solid var(--line); padding:16px 18px; border-radius:6px; margin:22px 0}
+  .callout.note{background:var(--accent-soft); border-color:transparent}
+  .callout.warn{background:var(--gold-soft); border-color:transparent}
+  .callout.open{background:var(--crit-soft); border-color:transparent}
+  .callout.ok{background:var(--ok-soft); border-color:transparent}
+  .callout p:first-of-type{margin-top:0} .callout > :last-child{margin-bottom:0}
+  .callout p,.callout ul{max-width:68ch}
+  .callout .lbl{display:block; margin-bottom:8px; font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.11em; color:var(--muted)}
+  .callout.note .lbl{color:var(--accent)} .callout.warn .lbl{color:var(--gold)}
+  .callout.open .lbl{color:var(--crit)} .callout.ok .lbl{color:var(--ok)}
+
+  figure{margin:30px 0; border:1px solid var(--line); border-radius:6px; background:var(--panel); padding:22px 18px 14px; overflow-x:auto}
+  figure svg{display:block; width:100%; height:auto; min-width:600px}
+  figcaption{color:var(--muted); font-size:.815rem; line-height:1.55; margin-top:14px; padding-top:12px; border-top:1px solid var(--line)}
+  svg text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; fill:var(--ink)}
+  svg text.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  @media (prefers-reduced-motion: reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <p class="kicker">AI-Broker × AI-Protect · Integration Interface</p>
+  <h1>Wiring ai-broker-mon into ai-protect</h1>
+  <p class="sub">The downstream path — Claude &amp; Codex → local proxy → Optimus → inference — is verified. This note scopes the <em>upstream</em> half: the control interface between the ai-protect daemon and <code>ai-broker-mon</code>. It identifies the gap against three required calls, and proposes the contract to close it. Draft, to be folded into the design record.</p>
+  <div class="byline">
+    <span><span class="lbl">Compiled</span> <span class="val">14 August 2026</span></span>
+    <span><span class="lbl">Status</span> <span class="val">draft — gap analysis + proposal</span></span>
+    <span><span class="lbl">Branch</span> <span class="val">feat/ai-broker-beyond-claude</span></span>
+  </div>
+  <div class="meta">
+    <span class="chip ok">downstream verified</span>
+    <span class="chip crit">upstream interface: not built</span>
+    <span class="chip warn">transport = IPC (to decide)</span>
+    <span class="chip">initial wiring: Codex only</span>
+  </div>
+</header>
+
+<h2>Scope</h2>
+<p>Three calls are needed across the ai-protect ↔ ai-broker boundary:</p>
+<ol>
+  <li><strong>StartUp</strong> — when ai-protect starts, it calls the broker's <code>start_up()</code> to do bootstrap work: load config, load cached credentials, start the local proxy.</li>
+  <li><strong>Agent Discovered</strong> — when ai-protect detects an agent installed on the machine, it calls <code>register_agent(metadata)</code> with the fields the broker's workflow needs.</li>
+  <li><strong>Config notification (broker → ai-protect)</strong> — when the broker has configuration to hand back for an agent, it calls an <strong>ai-protect</strong> function with the agent details.</li>
+</ol>
+<div class="cards">
+  <div class="card"><div class="k">1 · start_up()</div><div class="v crit">not a call</div><div class="n">Exists only as the process's no-arg bootstrap mode, reached by spawning the exe.</div></div>
+  <div class="card"><div class="k">2 · register_agent()</div><div class="v crit">absent</div><div class="n">Broker self-discovers; ai-protect never notifies it. No entrypoint, no schema.</div></div>
+  <div class="card"><div class="k">3 · config → ai-protect</div><div class="v crit">inverted</div><div class="n">Broker writes agent configs itself today; no ai-protect API to hand them back.</div></div>
+  <div class="card"><div class="k">transport</div><div class="v warn">spawn-only</div><div class="n">One-way "launch the exe." No duplex control channel between the two.</div></div>
+</div>
+
+<h2>What exists today</h2>
+<p>The entire integration is one file: <code>src/subscribers/ai_broker_launch.rs</code>. On each <code>settings.received</code> frame it reads <code>ai_broker.enabled</code> and <strong>spawns / supervises <code>ai-broker-mon</code> as a child process</strong> — fire-and-forget. Three properties of the current design shape every gap below:</p>
+<ul>
+  <li><strong><code>ai-broker-mon</code> is a binary, not a library.</strong> There is no <code>mon/src/lib.rs</code> and no <code>pub fn start_up</code> / <code>register_agent</code>; it is deliberately <strong>kept out of the daemon's build graph</strong> ("the same relationship ZCC has with its component daemons"). ai-protect therefore <em>cannot</em> call broker functions in-process.</li>
+  <li><strong>The broker self-discovers.</strong> <code>agents::wire_installed_mcp</code> filters its fourteen adapters by each adapter's own <code>is_installed()</code> on-disk probe. ai-protect's own agent discovery (<code>tasks/ai_agents/*</code>) is never handed to it.</li>
+  <li><strong>The broker writes agent configs itself.</strong> <code>configure_mcp</code> / <code>configure_llm</code> mutate <code>~/.claude/settings.json</code>, <code>~/.codex/config.toml</code>, etc. directly. It never returns config to anyone.</li>
+</ul>
+<div class="callout note">
+  <span class="lbl">Today's model in one line</span>
+  <p><strong>"Daemon spawns the process; the process does everything itself."</strong> The three interfaces describe a <em>bidirectional control plane</em> — which did not exist when this analysis was written. Even the launch path was scaffold: three <code>TODO(ai-broker)</code> markers (run-as-bound-user, <code>AID_USER_JWT</code> handoff, per-user <code>ZAX_DEMO_HOME</code>) were unwired, so it ran in the daemon's root context.</p>
+</div>
+<div class="callout ok">
+  <span class="lbl">Since this analysis — the control plane is built</span>
+  <p>The fire-and-forget model above is <strong>superseded</strong>. <code>ai_broker_launch.rs</code> now drives a real control plane over a Unix socket <em>or Windows named pipe</em> (start_up + register_agent + credential push + config staging-apply). The next section documents the ai-protect side <em>as built</em>; the gap table below is kept as the original analysis. The run-as-bound-user privilege drop is now <strong>built and verified end-to-end on Windows</strong> (see the callout below) — the credential source (a stub) remains open.</p>
+</div>
+
+<h2>The ai-protect side — as built</h2>
+<p>The whole ai-protect half of the integration is one subscriber module — <code>src/subscribers/ai_broker_launch.rs</code> — plus a small supporting cast. It is <strong>control-driven</strong>, not fire-and-forget: it spawns <code>ai-broker-mon --control</code> and talks to it over a Unix control socket (newline-JSON, contract in <code>ai-broker/mon/src/control/protocol.rs</code>).</p>
+
+<h3>Activation chain</h3>
+<pre><code>daemon boot
+  → triggers/registry.rs registers ai_broker_launch::SUBSCRIBERS   (the wiring)
+  → heartbeat fetches tenant config
+  → "settings.received" fires → on_settings_received() reads ai_broker.enabled
+  → reconcile(true) → spawn_broker()  (ai-broker-mon --control --socket …)
+  → control_handshake(): start_up  →  push_discovered_agents(): register_agent×N
+  + ensure_credential_watcher()  + ensure_config_apply_watcher()</code></pre>
+<p>The literal entry point is <code>triggers/registry.rs</code> (it registers the subscriber); the activation switch is the tenant <code>ai_broker.enabled</code> toggle arriving on <code>settings.received</code>. Everything then happens inside <code>ai_broker_launch.rs</code>.</p>
+
+<h3>What the module does</h3>
+<ul>
+  <li><strong>Reactive lifecycle</strong> — <code>reconcile(enabled)</code> spawns/supervises/stops one broker child per the <code>ai_broker.enabled</code> toggle (idempotent; reaps + respawns).</li>
+  <li><strong>Interface #1 — start_up</strong> — <code>control_handshake()</code> connects and sends bound-user identity + per-user home + the ZAX credential (from <code>zax_user_credential::fetch</code>, a stub today) as inputs.</li>
+  <li><strong>Interface #2 — register_agent</strong> — <code>push_discovered_agents()</code> runs ai-protect's real <code>scan_inventory()</code>, maps each client label → broker id (<code>client_label_to_broker_id</code>, incl. <code>vscode → copilot</code>), dedups, and pushes; re-fired on <code>agentcfg.rescan</code> / <code>inventory.rescan</code> / the periodic scan tick.</li>
+  <li><strong>Interface #4 — credential renewal</strong> — the <code>credential-request</code> watcher polls the broker's flag; on a near-expiry touch it fetches + pushes a fresh credential (<code>push_credential</code>).</li>
+  <li><strong>Interface #3 — single-writer config</strong> — the config-staging apply watcher sweeps each user's <code>~/.ai-broker/config-staging/</code>, and applies staged ZIPs <strong>as the owning OS user</strong> (<code>write_atomic_under</code> + fchown), making ai-protect the sole config writer.</li>
+</ul>
+
+<h3>Supporting cast (ai-protect side)</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th>File</th><th>Role in the integration</th></tr></thead>
+<tbody>
+<tr><td class="mono">subscribers/ai_broker_launch.rs</td><td><strong>The hub</strong> — spawn/supervise, handshake, discovery push, both watchers</td></tr>
+<tr><td class="mono">triggers/registry.rs</td><td>Registers the subscriber (the actual entry wiring)</td></tr>
+<tr><td class="mono">settings_store.rs</td><td><code>ai_broker.enabled</code> toggle it reconciles on (persist + cold-load)</td></tr>
+<tr><td class="mono">identity/zax_user_credential.rs</td><td>Credential source for start_up (<strong>stub → "unavailable"</strong> today)</td></tr>
+<tr><td class="mono">bound_user.rs</td><td>Bound-user id / email passed into start_up</td></tr>
+<tr><td class="mono">identity/home.rs</td><td><code>all_user_homes</code> + uid/gid resolution for the apply watcher</td></tr>
+<tr><td class="mono">utils/atomic_write</td><td><code>write_atomic_under</code> (O_NOFOLLOW + fchown) for single-writer applies</td></tr>
+<tr><td class="mono">utils/discovery</td><td><code>scan_inventory</code> feeding the discovery push</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="callout note">
+  <span class="lbl">The process boundary + shared contract</span>
+  <p>The wire contract now lives in a dedicated <strong>serde-only crate</strong>, <code>ai-broker/protocol</code> (lib <code>zax_control_protocol</code>), linked by <strong>both</strong> the broker and the daemon — so a renamed field/variant is a <strong>compile error on both sides</strong>, not the old hand-mirrored-JSON drift. It's the <em>only</em> ai-broker crate in the root-daemon build graph; <code>mon</code>/<code>sdk</code> (HTTP/OIDC/TLS surface) stay out, preserving the isolation. A <code>PROTOCOL_VERSION</code> handshake in <code>start_up</code> makes the broker refuse a version-mismatched daemon (fail fast on mismatched binaries).</p>
+</div>
+<div class="callout ok">
+  <span class="lbl">Control transport now built for Windows too (named pipe) — and the privilege drop is verified end-to-end</span>
+  <p>The control socket was originally <strong>Unix-only</strong> (Rust std gates <code>std::os::unix::net</code> to unix). That gap is closed: the transport seam (<code>control/transport.rs</code>) now carries a Windows arm — a <strong>named pipe</strong> (<code>\\.\pipe\…</code>), DACL-hardened, with the same duplex-stream API the Unix side exposes, plus <code>sim_daemon</code> and the daemon-side connector widened to match. <code>zax_control_protocol</code> stayed transport-agnostic throughout, as designed.</p>
+  <p>Beyond the transport: <strong>the SYSTEM→user privilege drop (<code>spawn_broker_as_console_user</code> / <code>platform::windows_session</code>) is now verified working on a real Windows VM</strong> — a genuine Windows service (session 0, LocalSystem) correctly crosses into the active console user's session via <code>CreateProcessAsUserW</code>, confirmed by process ownership (<code>ai-broker-mon.exe</code> running as the logged-in user, not SYSTEM). Getting there surfaced two real bugs, both fixed in <code>src/platform/windows_session.rs</code> / <code>src/subscribers/ai_broker_launch.rs</code>:</p>
+  <ul>
+    <li><strong>Missing <code>.exe</code> suffix.</strong> <code>AI_BROKER_BIN</code> is the bare cross-platform name <code>"ai-broker-mon"</code> (no extension, since Unix doesn't need one). The plain-spawn fallback tolerates that — Rust's <code>Command</code> resolves via <code>lpCommandLine</code>, which Windows auto-extends with <code>.exe</code> — but <code>CreateProcessAsUserW</code>'s <code>lpApplicationName</code>-based resolution does <em>not</em> auto-extend, and failed with <code>ERROR_FILE_NOT_FOUND</code> even though the file plainly existed at that path. Fixed by appending <code>std::env::consts::EXE_SUFFIX</code>.</li>
+    <li><strong>Stale session could win over the active one.</strong> <code>active_session_ids()</code> enumerated <code>WTSActive</code>/<code>WTSConnected</code>/<code>WTSDisconnected</code> sessions with no ordering, and every caller picked the <em>first</em> session whose token query succeeded — so a merely-disconnected leftover session (e.g. an admin's earlier RDP login) could beat the genuinely active user if it happened to enumerate first. Fixed by sorting <code>WTSActive</code> first.</li>
+  </ul>
+  <p>Two smaller correctness fixes landed alongside, neither of which was the actual blocker but both worth keeping: an explicit <code>cwd</code> instead of relying on <code>CreateProcessAsUserW</code>'s undocumented NULL-cwd fallback, and a <code>LoadUserProfileW</code> call before <code>CreateEnvironmentBlock</code> (per Microsoft's own guidance for this exact SYSTEM→user pattern).</p>
+</div>
+
+<h2>The gap, interface by interface</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Required call</th><th>Closest thing today</th><th>The gap</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>1 · StartUp</strong><br><code>start_up(ctx)</code></td>
+  <td><code>do_bootstrap()</code> — reached only by <em>spawning</em> the process</td>
+  <td>No callable entrypoint; no request/response or <strong>readiness signal</strong> back to ai-protect; no way to pass context in. The inputs it needs — <strong>bound user, <code>AID_USER_JWT</code>, <code>ZAX_DEMO_HOME</code></strong> — are exactly the three unwired <code>TODO(ai-broker)</code>.</td>
+</tr>
+<tr>
+  <td><strong>2 · Agent Discovered</strong><br><code>register_agent(meta)</code></td>
+  <td><strong>Nothing.</strong> Broker self-detects via <code>is_installed()</code></td>
+  <td>No entrypoint; no call site in ai-protect's discovery path to invoke it; <strong>no agreed metadata schema</strong>; no story for update / removal / idempotency. The ownership model must <strong>flip</strong> from "broker scans" to "ai-protect tells broker."</td>
+</tr>
+<tr>
+  <td><strong>3 · Config notification</strong><br>broker → ai-protect</td>
+  <td><strong>Inverted.</strong> Broker writes agent config to disk itself</td>
+  <td>No ai-protect-side "apply this agent config" API; no config schema; and it <strong>collides with ai-protect's existing config writer</strong> (policy-IR → native config + <code>hook_installer</code>). Two writers of the same files, no defined owner or merge rule.</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<h2>The foundational gap</h2>
+<p>There is no transport or contract between the daemon and the broker beyond "launch the exe." All three needs are RPC-shaped, and <strong>two directions are required</strong>. Because the broker is not linkable by design, these cannot be in-process function calls — they must be an <strong>IPC / RPC protocol</strong>. ai-protect already has an IPC framework (Unix socket / Windows named pipe, used for hooks and clients), but the broker is not an IPC peer today and there is no message schema for any of the three. That duplex channel + typed messages is the thing that actually needs designing; the three "functions" are just its methods.</p>
+
+<figure>
+<svg viewBox="0 0 720 312" role="img" aria-label="Proposed duplex IPC control channel between the ai-protect daemon and ai-broker-mon, carrying start_up and register_agent inbound and report_agent_config outbound; the broker's local proxies reach Optimus downstream.">
+  <defs>
+    <marker id="ah" viewBox="0 0 8 8" markerWidth="7" markerHeight="7" refX="6.5" refY="4" orient="auto">
+      <path d="M0.5,0.5 L7,4 L0.5,7.5 Z" fill="var(--faint)"/>
+    </marker>
+  </defs>
+  <text x="360" y="24" text-anchor="middle" class="mono" font-size="12" fill="var(--muted)">IPC control channel · duplex · TO BUILD</text>
+
+  <!-- left: daemon -->
+  <rect x="20" y="46" width="236" height="168" rx="8" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="138" y="72" text-anchor="middle" class="mono" font-size="13" font-weight="700">AI Protect daemon</text>
+  <text x="138" y="89" text-anchor="middle" font-size="11" fill="var(--muted)">root / LocalSystem</text>
+  <text x="36" y="118" font-size="11.5" fill="var(--muted)">· discovery — tasks/ai_agents</text>
+  <text x="36" y="138" font-size="11.5" fill="var(--muted)">· policy IR · hook_installer</text>
+  <text x="36" y="158" font-size="11.5" fill="var(--muted)">· enrolled identity · bound user</text>
+  <text x="36" y="178" font-size="11.5" fill="var(--muted)">· spawns / supervises broker</text>
+  <text x="36" y="198" font-size="11.5" fill="var(--accent)">· applies returned config (NEW)</text>
+
+  <!-- right: broker -->
+  <rect x="464" y="46" width="236" height="168" rx="8" fill="var(--box)" stroke="var(--box-line)"/>
+  <text x="582" y="72" text-anchor="middle" class="mono" font-size="13" font-weight="700">ai-broker-mon</text>
+  <text x="582" y="89" text-anchor="middle" font-size="11" fill="var(--muted)">bound-user session</text>
+  <text x="480" y="118" font-size="11.5" fill="var(--accent)">· control listener (NEW)</text>
+  <text x="480" y="138" font-size="11.5" fill="var(--muted)">· 14 adapters · is_installed()</text>
+  <text x="480" y="158" font-size="11.5" fill="var(--muted)">· SDK register→activate→exchange</text>
+  <text x="480" y="178" font-size="11.5" fill="var(--muted)">· local reverse + forward proxy</text>
+  <text x="480" y="198" font-size="11.5" fill="var(--muted)">· signs → gateway</text>
+
+  <!-- arrows -->
+  <line x1="256" y1="110" x2="458" y2="110" stroke="var(--faint)" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="357" y="104" text-anchor="middle" class="mono" font-size="11" fill="var(--accent)">start_up(ctx)</text>
+  <line x1="256" y1="140" x2="458" y2="140" stroke="var(--faint)" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="357" y="134" text-anchor="middle" class="mono" font-size="11" fill="var(--accent)">register_agent(meta)</text>
+  <line x1="458" y1="176" x2="262" y2="176" stroke="var(--faint)" stroke-width="1.4" marker-end="url(#ah)"/>
+  <text x="360" y="170" text-anchor="middle" class="mono" font-size="11" fill="var(--gold)">report_agent_config(agent)</text>
+
+  <!-- downstream -->
+  <line x1="582" y1="214" x2="582" y2="250" stroke="var(--faint)" stroke-width="1.4" marker-end="url(#ah)"/>
+  <rect x="464" y="252" width="236" height="44" rx="8" fill="var(--ok-soft)" stroke="none"/>
+  <text x="582" y="272" text-anchor="middle" class="mono" font-size="11.5" fill="var(--ok)">local proxy → Optimus → inference</text>
+  <text x="582" y="288" text-anchor="middle" font-size="10.5" fill="var(--ok)">✓ verified (downstream)</text>
+</svg>
+<figcaption><strong>Proposed interface.</strong> Two inbound methods (<span class="mono">start_up</span>, <span class="mono">register_agent</span>) and one outbound (<span class="mono">report_agent_config</span>) over a duplex control channel that replaces today's one-way spawn. The broker keeps its binary boundary and its verified downstream path unchanged.</figcaption>
+</figure>
+
+<p>Two second-order gaps fall out of the transport decision:</p>
+<ul>
+  <li><strong>Lifecycle.</strong> <code>register_agent</code> implies a <strong>long-lived service</strong> ai-protect calls repeatedly over time. Today's broker is "bootstrap once at enable, then proxy." It has to expose a control endpoint and stay reconcilable.</li>
+  <li><strong>Source-of-truth split.</strong> The three interfaces implicitly re-divide responsibility: <strong>ai-protect owns discovery (#2) and config application (#3); the broker owns brokering.</strong> The code does not reflect that yet (the broker still discovers and writes), so it must be made explicit or the two will fight over the same files.</li>
+</ul>
+
+<h2>Proposed message contract</h2>
+<p>A typed control protocol over ai-protect's existing IPC. The broker gains a thin service layer behind it, keeping the binary boundary (and the build isolation) intact.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Method</th><th>Dir</th><th>When</th><th>Payload (sketch)</th><th>Returns</th></tr></thead>
+<tbody>
+<tr>
+  <td class="mono">start_up</td>
+  <td class="dir out">daemon →</td>
+  <td>daemon boot / <code>ai_broker.enabled</code></td>
+  <td><code>bound_user</code>, <code>user_jwt</code>, <code>home</code>, tenant cfg</td>
+  <td>ready / error + proxy endpoints</td>
+</tr>
+<tr>
+  <td class="mono">register_agent</td>
+  <td class="dir out">daemon →</td>
+  <td>agent detected / changed / removed</td>
+  <td><code>agent_type</code>, <code>version</code>, install path, config paths, <code>state</code></td>
+  <td>accepted / unsupported</td>
+</tr>
+<tr>
+  <td class="mono">report_agent_config</td>
+  <td class="dir in">→ daemon</td>
+  <td>broker has config for an agent</td>
+  <td><code>agent</code>, target file, config body / patch, origin</td>
+  <td>applied / rejected</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Payload shapes are sketches — pinning the two schemas (<code>register_agent</code> metadata and <code>report_agent_config</code> body) is part of the work, not settled here.</p>
+
+<h2>Open decisions</h2>
+<div class="callout note">
+  <span class="lbl">1 · Who owns the agent config file? — RESOLVED: single writer = ai-protect</span>
+  <p><strong>Decided and built (pending live validation).</strong> The broker no longer writes agent config directly. In <code>stage</code> mode (<code>ZAX_CONFIG_SINK</code>) it <em>renders</em> the config and drops a ZIP at a per-user staging dir (<code>~/.ai-broker/config-staging/</code>, entries + a <code>manifest.json</code>); ai-protect <em>watches and applies</em> it <strong>as the owning OS user</strong> — containment under that user's home, a path allowlist (only <code>.codex/config.toml</code> today), and an O_NOFOLLOW-safe write + fchown via <code>write_atomic_under</code>. So ai-protect is the single writer. Commits: broker <code>270b86cc</code>, daemon <code>a446454d</code> (4 apply unit tests + a broker socket smoke). <strong>Remaining:</strong> a live daemon run on the research VM, then flip the default from <code>write</code> to <code>stage</code>; and defining the merge rule when policy-IR / <code>hook_installer</code> and a staged config target the same file.</p>
+</div>
+<div class="callout open">
+  <span class="lbl">2 · Transport &amp; framing</span>
+  <p>Reuse ai-protect's IPC socket/pipe with a new message type, or a dedicated broker control socket? Either keeps the broker un-linked. Needs a framing + versioning choice (the schemas will evolve — endpoint-first rollout, like <code>net_egress</code>).</p>
+</div>
+<div class="callout open">
+  <span class="lbl">3 · Discovery ownership</span>
+  <p>If ai-protect drives discovery via <code>register_agent</code>, the broker's adapter <code>is_installed()</code> probes become a fallback (or are retired). Decide whether the broker trusts ai-protect's "installed" truth outright, or reconciles it against its own probe.</p>
+</div>
+<div class="callout open">
+  <span class="lbl">4 · Multi-user / session model</span>
+  <p><code>start_up</code> runs per bound-user session (the broker child is per session on multi-user hosts). The control channel and the supervised-child map are keyed by session — the <code>TODO(ai-broker)</code> that today assumes a single child.</p>
+</div>
+<div class="callout open">
+  <span class="lbl">5 · LLM-leg identity — shared instance JWT vs per-agent · path routing chosen</span>
+  <p><strong>The gap.</strong> There is <em>one shared</em> <code>--llm-proxy</code>, and its identity is fixed at spawn (<code>ZAX_AGENT_ID</code> → one <code>sdk_init</code> → one instance JWT → one signing client). So every agent's LLM traffic is signed with the <strong>same</strong> instance JWT. The triple JWT grants the intersection of <em>instance</em> ∩ <em>user</em> caps — the user JWT is legitimately shared (same human), but a shared <em>instance</em> JWT flattens any per-agent capability scoping and loses per-agent attribution at Optimus.</p>
+  <p><strong>Blocking question (to Bumblebee/gateway).</strong> Does <code>intersected_caps</code> actually narrow by <code>agent_type</code> / registered agent, or are the instance-side caps install/user-scoped (identical regardless of agent)? If install-scoped, sharing is correct and nothing more is needed. If agent-scoped, we need a per-agent instance JWT on the LLM leg.</p>
+  <p><strong>Chosen mechanism if agent-scoped — per-agent path routing (not per-agent proxy processes).</strong> The agent points its base URL at <code>http://127.0.0.1:&lt;port&gt;/&lt;agent&gt;/v1</code>; the proxy makes the <strong>leading path segment the agent selector</strong> — parse it, look up that agent's signing context (its own instance/triple JWT) + provider upstream from a per-agent map, strip the prefix, forward the remainder. One process holds N signing contexts (each with its own instance-JWT renewal), instead of N proxy processes on N ports. The prefix selects identity <em>and</em> upstream at once (<code>/codex</code> → OpenAI, <code>/claude</code> → Anthropic); an absent/unknown segment falls back to the default context so <code>/v1/…</code> still works. Recorded in code: the <code>proxy_handler</code> note in <code>llm_leg.rs</code> and <code>ControlService::configure_shared_llm_leg</code>.</p>
+  <p><strong>Today.</strong> The single proxy is configured for Codex (<code>ZAX_AGENT_ID=codex</code>, upstream OpenAI), so Codex-only testing already uses the Codex instance JWT via a plain <code>…/v1</code> base URL — the path prefix only matters once a second agent shares the proxy. Note: the loopback proxy is ambient-authority for the bound user, so the path prefix is an identity selector any local process could invoke — lock the socket/loopback scope down when this lands. Commit: <code>df7808e1</code>.</p>
+</div>
+
+<h2>Next steps</h2>
+<ol>
+  <li>Define the <strong>IPC control contract</strong> (message types + framing + versioning) over ai-protect's existing IPC, replacing spawn-and-forget.</li>
+  <li>Give <code>ai-broker-mon</code> a thin <strong>service layer</strong> (<code>start_up</code>, <code>register_agent</code>, outbound <code>report_agent_config</code>) behind the control listener; keep the binary boundary.</li>
+  <li>Pin the two <strong>schemas</strong> (#2 metadata, #3 config body) and resolve the <strong>config-ownership</strong> question vs the policy engine first.</li>
+  <li>Wire the three <code>TODO(ai-broker)</code> (bound user, JWT handoff, home) as the <strong>inputs to <code>start_up</code></strong>.</li>
+</ol>
+
+<div class="callout note">
+  <span class="lbl">Testing the interface without a full daemon — <code>--sim-daemon</code></span>
+  <p>The broker side of steps 1–2 is built, and there is a harness to drive it: <code>ai-broker-mon --sim-daemon</code> plays the <strong>daemon's control-driver slice</strong> — it spawns the broker (as the invoking non-root user), drives <code>start_up</code> (credentials from env) and <code>register_agent(codex)</code> over the real <code>control::protocol</code>, and idles so the LLM proxy can be exercised. It touches <strong>none</strong> of ai-protect's machinery (no IPC socket, storage, enrollment, discovery, hooks), so it runs safely alongside a real ai-protect (e.g. a ZCC-managed one). It stands in for the daemon side only; it simulates <em>neither hooks</em> (not part of the broker interface) <em>nor real agent discovery</em> (it hardcodes Codex rather than scanning + mapping + filtering the installed set). Commit <span class="commit" style="color:var(--accent)">8122422c</span>; details in the design record's <em>Process model → Testing harness</em>.</p>
+</div>
+
+<div class="callout warn">
+  <span class="lbl">Initial wiring — Codex only, Claude excluded</span>
+  <p>The first pass wires <strong>Codex only</strong>. Claude is deliberately left untouched: it is the agent actively used to design and build this work, and a broken Claude config would interrupt that. Once the Codex path is proven end-to-end through the interface (<code>register_agent</code> → <code>report_agent_config</code> → applied), extend to Claude and the remaining agents. This mirrors the existing rule that Claude is excluded from the broker's install/retarget path.</p>
+</div>
+
+<footer style="margin-top:60px; padding-top:20px; border-top:1px solid var(--line); color:var(--faint); font:600 12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.02em">
+  AI Broker × AI Protect — Integration Interface · draft 14 August 2026 · to be merged into the Design Record
+</footer>
+
+</div>
+</body>
+</html>

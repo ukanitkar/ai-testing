@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Broker — Windows Privilege-Drop Verification</title>
+<style>
+  :root{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0; --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;  --gold-soft:#f9efd6;
+    --crit:#a63a2e;  --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;    --ok-soft:#e0f2e8;
+    --code-bg:#eef4f5;
+  }
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--ground); color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px; margin:0 auto; padding:52px 26px 120px}
+  p,li{max-width:74ch}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header.doc{border-bottom:2px solid var(--ink); padding-bottom:22px}
+  .kick{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 14px}
+  h1{font:700 1.95rem/1.15 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.03em; margin:0 0 12px; text-wrap:balance}
+  .sub{color:var(--muted); font-size:1.02rem; margin:0 0 20px; max-width:68ch}
+  .meta{display:flex; flex-wrap:wrap; gap:6px}
+  .chip{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:5px 9px; border-radius:4px; background:var(--panel2); color:var(--muted); white-space:nowrap}
+  .chip.ok{background:var(--ok-soft); color:var(--ok)} .chip.warn{background:var(--gold-soft); color:var(--gold)} .chip.crit{background:var(--crit-soft); color:var(--crit)}
+  h2{font:700 1.24rem/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.02em; margin:50px 0 4px; padding-top:15px; border-top:1px solid var(--line); text-wrap:balance}
+  h2 .n{color:var(--accent)}
+  h3{font:600 .82rem/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.05em; text-transform:uppercase; margin:22px 0 6px; color:var(--faint)}
+  p{margin:12px 0} ul,ol{margin:10px 0; padding-left:22px} li{margin:6px 0} li::marker{color:var(--faint)}
+  strong{font-weight:650} code{font:500 .86em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code-bg); padding:.1em .38em; border-radius:3px}
+  a{color:var(--accent)}
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:6px; padding:14px 16px; overflow-x:auto; font:500 12.7px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; margin:12px 0}
+  pre code{background:none; padding:0}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px; margin:22px 0}
+  .card{background:var(--box); border:1px solid var(--box-line); border-radius:7px; padding:14px 15px}
+  .card .k{font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.09em; color:var(--faint); margin-bottom:6px}
+  .card .v{font:700 .95rem/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .callout{background:var(--panel); border:1px solid var(--line); padding:14px 16px; border-radius:6px; margin:18px 0}
+  .callout.warn{background:var(--gold-soft); border-color:transparent} .callout.crit{background:var(--crit-soft); border-color:transparent} .callout.ok{background:var(--ok-soft); border-color:transparent}
+  .callout .lbl{display:block; margin-bottom:6px; font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--gold)}
+  .callout.crit .lbl{color:var(--crit)} .callout.ok .lbl{color:var(--ok)} .callout p:first-child{margin-top:0} .callout>:last-child{margin-bottom:0}
+  .tablewrap{overflow-x:auto; margin:18px 0; border:1px solid var(--line); border-radius:6px}
+  table{border-collapse:collapse; width:100%; font-size:.86rem; min-width:520px}
+  th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{background:var(--panel); font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.08em; color:var(--muted)}
+  tbody tr:last-child td{border-bottom:none} td:first-child{color:var(--ink)}
+  .st{font:600 10.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:3px 7px; border-radius:4px; white-space:nowrap}
+  .st.ok{background:var(--ok-soft); color:var(--ok)} .st.warn{background:var(--gold-soft); color:var(--gold)} .st.crit{background:var(--crit-soft); color:var(--crit)}
+  .step{background:var(--box); border:1px solid var(--box-line); border-left:3px solid var(--accent); border-radius:6px; padding:6px 16px; margin:14px 0}
+  footer{margin-top:52px; padding-top:16px; border-top:1px solid var(--line); color:var(--faint); font:600 12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="doc">
+  <p class="kick">AI Broker · Windows Path B · verification record</p>
+  <h1>Windows Privilege-Drop Verification</h1>
+  <p class="sub">The SYSTEM daemon → active-user-session broker spawn (<code>CreateProcessAsUserW</code>) was exercised end-to-end on a real disposable Windows VM. Two real bugs surfaced and were fixed; two defensive-but-non-blocking improvements landed alongside. This records the fixes, the exact scripts used to redeploy/verify, and the final confirmed result.</p>
+  <div class="meta">
+    <span class="chip">repo ai-protect</span>
+    <span class="chip mono">branch feat/ai-broker-beyond-claude</span>
+    <span class="chip mono">base 21541f0e + uncommitted fixes</span>
+    <span class="chip ok">privilege drop verified end-to-end on Windows</span>
+  </div>
+</header>
+
+<h2><span class="n">1 ·</span> What was being tested</h2>
+<p>Path B from the Windows handoff doc: an elevated <strong>SYSTEM</strong> daemon (installed as a real Windows service, so it genuinely runs in <strong>session 0</strong>) receives <code>ai_broker.enabled=true</code> from the mock device plane and must spawn <code>ai-broker-mon</code> <strong>as the logged-in console user</strong> (<code>umesh</code>), not as SYSTEM — proving <code>spawn_broker_as_console_user</code> / <code>platform::windows_session::run_in_user_session</code> actually crosses the session boundary via <code>WTSQueryUserToken</code> → <code>CreateEnvironmentBlock</code> → <code>CreateProcessAsUserW</code>.</p>
+
+<h2><span class="n">2 ·</span> Four fixes, in the order they landed</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>#</th><th>Fix</th><th>File</th><th>Was it the actual blocker?</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Explicit <code>cwd</code> (the broker's own directory) instead of <code>None</code> for <code>CreateProcessAsUserW</code>'s <code>lpCurrentDirectory</code></td><td class="mono">ai_broker_launch.rs</td><td><span class="st warn">No</span> — still a correct defensive fix, kept</td></tr>
+<tr><td>2</td><td><code>LoadUserProfileW</code> called before <code>CreateEnvironmentBlock</code>, per Microsoft's own guidance for exactly this SYSTEM→user pattern (new <code>PrivilegeScope</code> for <code>SeRestorePrivilege</code>/<code>SeBackupPrivilege</code>, RAII <code>LoadedProfile</code> unload guard)</td><td class="mono">windows_session.rs</td><td><span class="st warn">No</span> — still correct, kept</td></tr>
+<tr><td>3</td><td><strong>The real bug:</strong> <code>AI_BROKER_BIN</code> is the bare cross-platform name <code>"ai-broker-mon"</code> (no <code>.exe</code>) — fine for the plain-spawn fallback (resolves via <code>lpCommandLine</code>, which Windows auto-extends), fatal for <code>CreateProcessAsUserW</code>'s <code>lpApplicationName</code> resolution (no auto-extend) → <code>ERROR_FILE_NOT_FOUND</code> on a file that plainly existed. Fixed with <code>std::env::consts::EXE_SUFFIX</code>.</td><td class="mono">ai_broker_launch.rs</td><td><span class="st crit">Yes</span></td></tr>
+<tr><td>4</td><td><strong>Second real bug:</strong> <code>active_session_ids()</code> had no session-state ordering, so a stale <strong>disconnected</strong> session (an admin's leftover RDP login) could win over the genuinely <strong>active</strong> user if it happened to enumerate first. Fixed by stable-sorting <code>WTSActive</code> first.</td><td class="mono">windows_session.rs</td><td><span class="st crit">Yes</span></td></tr>
+</tbody></table></div>
+
+<div class="callout crit">
+  <span class="lbl">How fix #3 was actually found</span>
+  <p>Two theories (cwd, then <code>LoadUserProfileW</code>) were tried and rebuilt/redeployed <strong>without</strong> resolving the identical <code>ERROR_FILE_NOT_FOUND</code> — confirmed each time by comparing the deployed binary's SHA-256 against the freshly-built one, ruling out a stale-copy false negative. What actually cracked it was a temporary diagnostic log line printing the exact <code>app</code>/<code>cmdline</code>/<code>cwd</code> strings reaching <code>CreateProcessAsUserW</code> — which showed <code>app="C:\Users\umesh\work\ai-broker-mon"</code>, no extension. The diagnostic was removed once the cause was confirmed.</p>
+</div>
+
+<h2><span class="n">3 ·</span> Verification scripts</h2>
+<p>Two scripts drove the final redeploy-and-check cycle on the VM, both reachable from the RDP session via the <code>Z:</code> drive redirection (<code>subst</code>-mapped to this <code>ai-protect</code> clone) at <code>\\tsclient\Z\commands\</code>.</p>
+
+<h3>commands/fix3.ps1 — redeploy + retest</h3>
+<pre><code># Redeploy the session-priority-fix build of the daemon (WTSActive now beats a
+# stale WTSDisconnected session) and re-test the AiBrokerTest SYSTEM service
+# privilege-drop path.
+# Run this from an elevated PowerShell on the VM.
+
+$expectedHash = "92DE3EC705C074F827D02A1C3A12CD9401035E242DA579173B1AA7CA2C3C2806"
+
+Write-Host "Stopping AiBrokerTest service..."
+sc.exe stop AiBrokerTest
+
+Write-Host "Killing any leftover daemon/broker processes..."
+Get-Process zscaler-ai-protect, ai-broker-mon -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Sleep -Seconds 2
+
+$leftover = Get-Process zscaler-ai-protect, ai-broker-mon -ErrorAction SilentlyContinue
+if ($leftover) {
+    Write-Host "ERROR: processes still running, aborting:" -ForegroundColor Red
+    $leftover | Format-Table Id, ProcessName, SI
+    exit 1
+}
+Write-Host "Confirmed clean." -ForegroundColor Green
+
+Write-Host "Copying fixed binary from Z: ..."
+Copy-Item "\\tsclient\Z\target\release\zscaler-ai-protect.exe" "C:\Users\umesh\work\zscaler-ai-protect.exe" -Force
+
+$actualHash = (Get-FileHash "C:\Users\umesh\work\zscaler-ai-protect.exe" -Algorithm SHA256).Hash
+if ($actualHash -ne $expectedHash) {
+    Write-Host "ERROR: hash mismatch after copy!" -ForegroundColor Red
+    Write-Host "  expected: $expectedHash"
+    Write-Host "  actual:   $actualHash"
+    exit 1
+}
+Write-Host "Hash confirmed: $actualHash" -ForegroundColor Green
+
+Write-Host "Checking mock device plane on :8080..."
+try {
+    $health = curl.exe -s http://127.0.0.1:8080/health
+    if ($health -ne "ok") { throw "unexpected response: $health" }
+    Write-Host "Mock device plane is up." -ForegroundColor Green
+} catch {
+    Write-Host "WARNING: mock device plane not reachable ($_). Restart it before continuing:" -ForegroundColor Yellow
+    Write-Host '  &amp; "C:\Program Files\Python312\python.exe" -u "\\tsclient\Z\ai-broker\scripts\dev_device_plane.py" --port 8080 *&gt; "C:\ai-broker-test\device-plane.log"'
+}
+
+Write-Host "Starting AiBrokerTest service..."
+sc.exe start AiBrokerTest
+Start-Sleep -Seconds 5
+
+Write-Host "`n--- ai-broker-mon.exe owner (the actual test) ---" -ForegroundColor Cyan
+Get-Process ai-broker-mon -IncludeUserName -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, UserName, SI
+
+Write-Host "`n--- latest broker-launch log lines ---" -ForegroundColor Cyan
+Select-String -Path "C:\ProgramData\ZscalerAIProtect\daemon.log" -Pattern "launched ai-broker-mon|could not start ai-broker-mon" |
+    Select-Object -Last 4
+</code></pre>
+
+<h3>commands/check-both.ps1 — confirm the split-privilege result</h3>
+<pre><code># Check both the daemon and broker processes together — confirms the
+# split-privilege result end-to-end: daemon should be SYSTEM/session 0,
+# broker should be the active console user/session (e.g. umesh/3).
+
+Get-Process zscaler-ai-protect, ai-broker-mon -IncludeUserName -ErrorAction SilentlyContinue |
+    Select-Object Id, ProcessName, UserName, SI
+</code></pre>
+
+<h2><span class="n">4 ·</span> Confirmed result</h2>
+<p><code>check-both.ps1</code>'s output — the actual proof:</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Process</th><th>User</th><th>Session</th></tr></thead>
+<tbody>
+<tr><td class="mono">zscaler-ai-protect (daemon)</td><td class="mono">NT AUTHORITY\SYSTEM</td><td>0</td></tr>
+<tr><td class="mono">ai-broker-mon (broker)</td><td class="mono">EC2AMAZ-VRAE5E8\umesh</td><td>3</td></tr>
+</tbody></table></div>
+<div class="callout ok">
+  <span class="lbl">This is the whole point of Path B</span>
+  <p>A LocalSystem daemon running in the kernel's true session-0 isolation correctly identified the <strong>active</strong> (not merely connected/disconnected) console user and handed the broker off into that user's own session — the split-privilege model this subsystem exists to prove, now demonstrated on real Windows rather than only reasoned about from the source.</p>
+</div>
+
+<h2><span class="n">5 ·</span> What's still open</h2>
+<ul>
+  <li><strong>Not yet committed/pushed.</strong> All four fixes are local working-tree edits on <code>feat/ai-broker-beyond-claude</code> as of this record.</li>
+  <li><strong>Unix privilege drop</strong> (<code>.uid</code> + <code>initgroups</code>) is still a TODO in the subscriber — only the Windows arm was built and verified.</li>
+  <li><strong>Path B's remaining steps</strong> (OIDC login as the console user, agent approval, the actual <code>200 pong</code> LLM call through the now-correctly-spawned broker) had not yet been run at the time of this record.</li>
+</ul>
+
+<footer>AI Broker — Windows privilege-drop verification · branch feat/ai-broker-beyond-claude · session 0 → active-user-session crossing confirmed on EC2AMAZ-VRAE5E8</footer>
+</div>
+</body>
+</html>

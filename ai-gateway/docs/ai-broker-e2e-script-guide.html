@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Broker Script Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light dark;
+  --paper:      #F3F5FB;
+  --panel:      #FFFFFF;
+  --panel-2:    #F8F9FD;
+  --ink:        #1A2030;
+  --muted:      #5C6578;
+  --faint:      #8A93A6;
+  --line:       #DEE3EE;
+  --line-soft:  #E9ECF5;
+
+  --auto:       #35538F;   /* run automatically by the orchestrator */
+  --auto-tint:  #E9EDF9;
+  --manual:     #A16A00;   /* run by hand, outside the automated pass */
+  --manual-tint:#FBF0D9;
+  --destructive:#A6432E;
+  --destructive-tint:#F7E6E1;
+  --readonly:   #3E7A5C;
+  --readonly-tint:#E4F1EA;
+
+  --shadow: 0 1px 2px rgba(26,32,48,0.04), 0 8px 24px -12px rgba(26,32,48,0.12);
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #10131C; --panel: #171B27; --panel-2: #1C212F;
+    --ink: #E7EAF2; --muted: #9AA3B8; --faint: #6B7488;
+    --line: #2A3040; --line-soft: #232936;
+    --auto: #8FADEE; --auto-tint: #202A42;
+    --manual: #E3B34A; --manual-tint: #332A12;
+    --destructive: #E08872; --destructive-tint: #332019;
+    --readonly: #79C9A4; --readonly-tint: #16281F;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -16px rgba(0,0,0,0.6);
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #10131C; --panel: #171B27; --panel-2: #1C212F;
+  --ink: #E7EAF2; --muted: #9AA3B8; --faint: #6B7488;
+  --line: #2A3040; --line-soft: #232936;
+  --auto: #8FADEE; --auto-tint: #202A42;
+  --manual: #E3B34A; --manual-tint: #332A12;
+  --destructive: #E08872; --destructive-tint: #332019;
+  --readonly: #79C9A4; --readonly-tint: #16281F;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -16px rgba(0,0,0,0.6);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 15.5px; line-height: 1.55; -webkit-font-smoothing: antialiased;
+}
+@media (prefers-reduced-motion: reduce) { * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+code, .mono { font-family: "IBM Plex Mono", ui-monospace, "Cascadia Code", monospace; }
+h1, h2, h3 { text-wrap: balance; font-weight: 600; margin: 0; }
+p { margin: 0; }
+a { color: var(--auto); }
+:focus-visible { outline: 2px solid var(--auto); outline-offset: 2px; border-radius: 3px; }
+
+.shell { max-width: 980px; margin: 0 auto; padding: 0 20px 96px; }
+
+.masthead { padding: 56px 0 28px; border-bottom: 1px solid var(--line); margin-bottom: 32px; }
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--faint); margin: 0 0 10px;
+}
+.masthead h1 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.01em; max-width: 26ch; }
+.masthead .dek { margin-top: 14px; max-width: 66ch; color: var(--muted); font-size: 16px; }
+.masthead .dek code { color: var(--ink); }
+
+.key { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 26px; padding-top: 22px; border-top: 1px dashed var(--line); }
+.key-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.key-swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.key-swatch.auto { background: var(--auto); }
+.key-swatch.manual { background: var(--manual); }
+.key-swatch.destructive { background: var(--destructive); border-radius: 50%; }
+.key-swatch.readonly { background: var(--readonly); border-radius: 50%; }
+
+.group { margin-bottom: 44px; }
+.group-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+.group-num {
+  font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600;
+  color: var(--faint); letter-spacing: 0.04em;
+}
+.group-title { font-size: 20px; font-weight: 600; }
+.group-note { font-size: 13.5px; color: var(--muted); margin: 6px 0 18px; max-width: 68ch; }
+
+.scripts { display: flex; flex-direction: column; gap: 14px; }
+.script {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 18px 22px;
+}
+.script-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.script-name {
+  font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 14.5px; color: var(--ink);
+  background: var(--panel-2); padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line);
+}
+.badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge {
+  font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px;
+}
+.badge.auto { color: var(--auto); background: var(--auto-tint); }
+.badge.manual { color: var(--manual); background: var(--manual-tint); }
+.badge.destructive { color: var(--destructive); background: var(--destructive-tint); }
+.badge.readonly { color: var(--readonly); background: var(--readonly-tint); }
+
+.purpose { font-size: 15px; font-weight: 500; color: var(--ink); margin-bottom: 8px; }
+.desc { font-size: 14px; color: var(--muted); max-width: 68ch; }
+.desc code { color: var(--ink); }
+.invoke {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft);
+  font-size: 12.5px; color: var(--faint); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+}
+.invoke .lbl { font-family: "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: 0.06em; font-size: 10.5px; color: var(--faint); }
+.invoke code { color: var(--muted); background: var(--panel-2); padding: 1px 6px; border-radius: 4px; }
+
+.excluded {
+  margin-top: 8px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  padding: 18px 22px;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.excluded .exlabel { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; display: block; }
+.excluded .exlist { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; line-height: 1.9; }
+.excluded .exlist code { color: var(--ink); }
+
+.colophon { margin-top: 48px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">ai-protect &middot; commands/</p>
+    <h1>What every AI Broker e2e script does</h1>
+    <p class="dek">The <code>commands/</code> directory holds two generations of test tooling: the current, actively-maintained e2e suite documented here, and an earlier set of one-off manual debugging transcripts from before it existed (listed at the end, for context, not detail). This guide covers only the former &mdash; the orchestrator, its elevated companion, every script it runs automatically, and the manual follow-ups it names by name for the cases it deliberately doesn't automate.</p>
+    <div class="key">
+      <span class="key-item"><span class="key-swatch auto"></span>run automatically by the orchestrator</span>
+      <span class="key-item"><span class="key-swatch manual"></span>run by hand</span>
+      <span class="key-item"><span class="key-swatch destructive"></span>destructive</span>
+      <span class="key-item"><span class="key-swatch readonly"></span>read-only</span>
+    </div>
+  </header>
+
+  <!-- ============================================================ GROUP 1 -->
+  <section class="group">
+    <div class="group-head"><span class="group-num">01</span><span class="group-title">Orchestrator &amp; elevated companion</span></div>
+    <p class="group-note">Every other script in this guide is called by, or answers requests from, one of these two.</p>
+    <div class="scripts">
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">run-e2e-suite.ps1</span>
+          <div class="badges"><span class="badge auto">entry point</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">The main orchestrator &mdash; runs all 14 numbered steps in order, in one non-elevated window as <code>umesh</code>.</p>
+        <p class="desc">Deploys fresh binaries, starts the service, and works through privilege-drop verification, TLS/token checks, unit suites, ACL checks, the credential and config-delta watchers, the MCP relay, and four negative cases (protocol mismatch, the enable/disable transition, the parent-death watchdog, graceful shutdown) ending with <code>--recover</code>. Stops on the <strong>first failing step</strong> rather than continuing through all 14 and reporting at the end. <code>-SkipDestructive</code> skips the last four teardown-heavy steps; <code>-IncludeReboot</code> opts into restarting the VM.</p>
+        <div class="invoke"><span class="lbl">Run</span><code>powershell -File \\tsclient\Z\commands\run-e2e-suite.ps1</code></div>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">run-e2e-suite-elevated-helper.ps1</span>
+          <div class="badges"><span class="badge manual">separate window</span><span class="badge readonly">read-only bridge</span></div>
+        </div>
+        <p class="purpose">A file-drop request/response server that does the one thing the non-elevated orchestrator structurally cannot.</p>
+        <p class="desc">Runs in its own elevated (Administrator) PowerShell window for the whole suite's duration, polling <code>C:\ai-broker-test\elevated-request.json</code> every 750ms. Answers exactly six hardcoded actions &mdash; <code>sc-query</code>, <code>sc-stop</code>, <code>sc-start</code>, <code>psinfo</code>, <code>cargo-test-elevated</code>, <code>read-daemon-log</code> &mdash; and nothing else: the request carries only an action name (plus a regex <code>pattern</code>/<code>tail</code> for the log-read action), never a command or path, specifically so a file drop can't become a privilege-escalation primitive.</p>
+        <div class="invoke"><span class="lbl">Run</span><code>powershell -File \\tsclient\Z\commands\run-e2e-suite-elevated-helper.ps1</code><span class="lbl">in an elevated window, before starting the suite</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================ GROUP 2 -->
+  <section class="group">
+    <div class="group-head"><span class="group-num">02</span><span class="group-title">Run automatically &mdash; the 14 steps</span></div>
+    <p class="group-note">Called by <code>run-e2e-suite.ps1</code> itself, via <code>Run-Phase</code> or a background job. Listed in the order the orchestrator invokes them.</p>
+    <div class="scripts">
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-a-acl.ps1</span>
+          <div class="badges"><span class="badge auto">Step 6</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">Confirms the broker's secret files carry an owner-only, protected DACL.</p>
+        <p class="desc">Checks <code>llm-proxy.token</code>, <code>.credentials.json</code>, and <code>mitm-ca-key.pem</code> for exactly one ACE (the writing user, full control, not inherited), plus a control file (<code>mitm-ca-cert.pem</code>) expected <em>not</em> to be locked down. Exists because the Rust code's own <code>restrict_to_owner</code> calls discard their <code>Result</code>, so a DACL failure would otherwise be silent. Run as <code>umesh</code> deliberately &mdash; a file's owner always holds <code>READ_CONTROL</code> regardless of what the DACL says, which is what makes the non-elevated identity the correct one to check from.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-b-cred-watcher.ps1</span>
+          <div class="badges"><span class="badge auto">Step 7</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">Proves the credential-refresh edge-trigger fires end to end.</p>
+        <p class="desc">Ages the cached JWT sidecar directly (sets <code>zax_expires_at</code> to now) and polls <code>daemon.log</code> for the resulting <code>credential_requested: false&rarr;true</code> flip and the subsequent <code>broker.json</code> rewrite &mdash; even though the pushed credential itself is still an empty daemon-side stub. Restores the original sidecar afterward.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-b-config-apply.ps1</span>
+          <div class="badges"><span class="badge auto">Step 8</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">Exercises the Windows ownership reassignment behind config-delta merges, both the happy path and the defense.</p>
+        <p class="desc"><strong>Positive:</strong> observes the already-live <code>codex</code> ConfigDelta land in <code>.codex\config.toml</code>, confirming the file's owner was reassigned via <code>SetSecurityInfo</code> &mdash; a path unit tests can only skip without <code>SeRestorePrivilege</code>. <strong>Negative:</strong> briefly stops the broker (not the daemon), hand-crafts a <code>status.json</code> naming <code>.ssh/authorized_keys</code>, and confirms the daemon's allowlist refuses to write it. Backs up and restores the real config file, then forces a broker respawn.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-c-mcp-stdio.ps1</span>
+          <div class="badges"><span class="badge auto">Step 9</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">Drives the <code>--mcp-server</code> stdio relay directly, since no real MCP client is installed on the test VM.</p>
+        <p class="desc">Codex isn't on this VM, so this pipes six raw JSON-RPC lines (<code>initialize</code>, <code>ping</code>, <code>tools/list</code>, a notification, an unknown method, invalid JSON) into <code>ai-broker-mon.exe --mcp-server</code> over stdin and checks the replies by id: capabilities advertised, exactly 4 replies (the notification and invalid JSON draw none), and the unknown method returns JSON-RPC <code>-32601</code>. Run by the orchestrator inside a background job under a 60-second watchdog &mdash; a hang here is itself a finding (interactive OIDC on an aged-out cached credential is the documented risk), since the script sets no exit code of its own for the job to check.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-c-protocol-mismatch.ps1</span>
+          <div class="badges"><span class="badge auto">Step 10</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">Proves a <code>broker.json</code> protocol-version mismatch refuses cleanly and recovers, without ever touching the live service.</p>
+        <p class="desc">Spawns a fully isolated <code>--control</code> under its own <code>ZAX_DEMO_HOME</code> and proxy port (<code>:18788</code>, never <code>:8788</code>), writes a bad <code>protocol_version</code> by hand (must produce <code>ready:false</code> and an empty <code>agents[]</code>), then a good one (must recover to <code>ready:true</code>). Because the sandbox skips the real bootstrap flow entirely, it has to hand-build everything bootstrap would have: <code>config.yaml</code>, two distinct <code>init.yaml</code> files, a working directory holding a copy of the SDK's bundled config, and a credential seeded from the live broker's own sidecar so recovery doesn't need an interactive OIDC login.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-c-negative-setup.ps1</span>
+          <div class="badges"><span class="badge auto">Step 11, part 1</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">Restarts the mock device plane on a fast 60-second heartbeat so the enable/disable test below doesn't wait up to 10 minutes for the daemon to notice.</p>
+        <p class="desc">The daemon only adopts a pushed heartbeat cadence <em>after</em> receiving one, which itself needs a heartbeat at the current (slow, 600s default) cadence &mdash; so this restarts the service immediately afterward to short-circuit that: a service restart heartbeats right away. Confirms <code>/config</code> serves the fast cadence before handing off.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-c-negative-flip.ps1</span>
+          <div class="badges"><span class="badge auto">Step 11, part 2</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">The actual negative test: flips <code>ai_broker.enabled</code> to false and confirms the daemon reaps the already-running broker.</p>
+        <p class="desc">Tests the enabled&rarr;disabled <em>transition</em> specifically &mdash; not just a fresh start with the toggle already off &mdash; by bumping the mock's config version with <code>enabled:false</code> and polling <code>daemon.log</code> for a new <code>"stopped ai-broker-mon"</code> line within 150 seconds, then confirming the process is actually gone and the port released.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-c-watchdog.ps1</span>
+          <div class="badges"><span class="badge auto">Step 12</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">Confirms the LLM-proxy child exits on its own when its parent dies, instead of orphaning the port.</p>
+        <p class="desc">Identifies the parent/child PIDs via whichever process owns <code>:8788</code>, kills <em>only</em> the <code>--control</code> parent, and polls for the <code>--llm-proxy</code> child to notice and exit within seconds, then for the port to release. Before commit <code>f5c3e367</code> there was no Windows watchdog at all, so an orphaned proxy would squat on the port until killed by hand.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-d-recover.ps1</span>
+          <div class="badges"><span class="badge auto">Step 14</span><span class="badge destructive">destructive, last</span></div>
+        </div>
+        <p class="purpose">The last and most involved step: verifies <code>--recover</code>'s dry-run safety, its real teardown, and a deliberate self-heal gap in the daemon.</p>
+        <p class="desc">Dry-run first (must change nothing) &rarr; real run (kills both broker processes via a toolhelp32 sweep, strips codex's MCP entry, drops the cached JWT) &rarr; verifies each specific claim &rarr; proves the broker stays dead for 90 seconds with no new settings frame, since <code>reconcile()</code> has exactly one call site and never fires on a timer &rarr; restores a session-backed-up credential so the forced respawn that follows doesn't need an unattended, un-clickable OIDC round &rarr; polls the final state until the box is fully restored.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================ GROUP 3 -->
+  <section class="group">
+    <div class="group-head"><span class="group-num">03</span><span class="group-title">Run by hand &mdash; named by the orchestrator, not automated</span></div>
+    <p class="group-note"><code>run-e2e-suite.ps1</code> deliberately excludes two cases from its automatic run and names these scripts, by filename, as the way to run them: the "nobody logged on" negative case (needs a real RDP logoff of the session running the suite) and reboot-survival (opt in with <code>-IncludeReboot</code>, otherwise run these by hand after a manual reboot).</p>
+    <div class="scripts">
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-e-nobody-setup2.ps1</span>
+          <div class="badges"><span class="badge manual">elevated</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">Arms a SYSTEM-hosted mock device plane that survives a real logoff, then tells the operator to log off.</p>
+        <p class="desc">Registers <code>phase-e-mock-wrapper.ps1</code> as a SYSTEM Scheduled Task (<code>ZaxMockDevicePlane</code>) so the mock keeps answering heartbeats after the console session ends &mdash; a plain child process would die with the session. Confirms the task is serving the unchanged config version, then instructs a genuine <code>shutdown /l</code> (a mere RDP disconnect leaves the session as <code>WTSDisconnected</code>, which still counts as logged in) within about two minutes.</p>
+        <div class="invoke"><span class="lbl">Then</span><code>log off &rarr; wait 5&ndash;6 min &rarr; log back in &rarr; run phase-e-nobody-check2.ps1</code></div>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-e-mock-wrapper.ps1</span>
+          <div class="badges"><span class="badge manual">template</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">The template <code>phase-e-nobody-setup2.ps1</code> fills in and registers as the scheduled task's actual target.</p>
+        <p class="desc">Not run directly. A scheduled task doesn't inherit the creating session's environment, so this file's env vars are literal <code>__PLACEHOLDER__</code> tokens substituted by the setup script before the filled copy is written to <code>C:\ai-broker-test\phase-e-mock-wrapper-filled.ps1</code> and registered. Kept as its own file because <code>schtasks</code>' quoting for a nested <code>powershell -Command</code> string gets unreliable fast.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-e-nobody-check2.ps1</span>
+          <div class="badges"><span class="badge manual">after logging back in</span><span class="badge destructive">destructive</span></div>
+        </div>
+        <p class="purpose">Verifies the SYSTEM-context fallback fired while nobody was logged on, then tears down and restores.</p>
+        <p class="desc">Confirms the scheduled-task mock survived the logoff, checks <code>daemon.log</code> for the fallback spawn line and the current process/port state, then tears down the scheduled task and restarts the mock normally with a bumped config version &mdash; polling up to 90 seconds for the daemon to notice and launch the broker back in the user's own session.</p>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-b-prep.ps1</span>
+          <div class="badges"><span class="badge manual">non-elevated</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">Brings the mock device plane back up after a manual reboot, before re-verifying the stack.</p>
+        <p class="desc">Copies the mock script locally first (so it doesn't depend on <code>\\tsclient\Z</code> staying mounted, which evaporates if the RDP session drops), starts it detached if not already running, and confirms <code>/health</code>. Hands off to starting the service from the admin window, then <code>phase-b-verify.ps1</code>.</p>
+        <div class="invoke"><span class="lbl">Then</span><code>sc.exe start AiBrokerTest (admin window) &rarr; phase-b-verify.ps1</code></div>
+      </div>
+
+      <div class="script">
+        <div class="script-head">
+          <span class="script-name">phase-b-verify.ps1</span>
+          <div class="badges"><span class="badge manual">non-elevated</span><span class="badge readonly">read-only</span></div>
+        </div>
+        <p class="purpose">Confirms the daemon and broker came back up correctly after a reboot, using cached credentials rather than a fresh login.</p>
+        <p class="desc">Checks process ownership/session (daemon SI=0, broker SI=console), whether <code>:8788</code> is listening, and tails <code>daemon.log</code>/<code>zax.log</code> for the spawn, status-ready, and cached-credential lines &mdash; the whole point being that <code>ready:true</code> should be reached with <strong>no interactive OIDC round</strong>, proving the cached JWT survived the reboot.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============================================================ EXCLUDED -->
+  <div class="excluded">
+    <span class="exlabel">Not covered here &mdash; superseded, pre-suite debugging scripts</span>
+    <p style="margin-bottom:10px;">Also in <code>commands/</code>: an earlier, manual "Path A / Path B" comparison harness and a series of one-off redeploy-and-verify recipes tied to specific candidate build hashes, predating the phase-*.ps1 suite above. None are referenced by <code>run-e2e-suite.ps1</code>.</p>
+    <div class="exlist">
+      <code>check-both.ps1</code> &middot; <code>path-a.ps1</code> &middot; <code>path-a-curl.ps1</code> &middot; <code>path-b.ps1</code> &middot; <code>path-b-redeploy3.ps1</code><br>
+      <code>fix1.txt</code> &middot; <code>fix2.txt</code> &middot; <code>fix3.ps1</code> &middot; <code>fix3.txt</code> &middot; <code>phase-b-redeploy-daemon.ps1</code><br>
+      <code>phase-e-nobody-setup.ps1</code> &middot; <code>phase-e-nobody-check.ps1</code> <span style="color:var(--faint)">(v2 of the nobody-logged-on pair, superseded by the setup2/check2 pair above)</span>
+    </div>
+  </div>
+
+  <p class="colophon">Reconstructed from the scripts' own source and header comments as of this session's work on <code>run-e2e-suite.ps1</code>. See also the companion <a href="ai-broker-test-ledger.html">AI Broker Test Ledger</a> for the why/what/how of each of the 14 automated steps paired against the elevated helper's supporting actions.</p>
+
+</div>
+</body>
+</html>

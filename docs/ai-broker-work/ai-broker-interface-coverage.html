@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Broker × AI Protect — Interface Coverage (today)</title>
+<style>
+  :root{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0;
+    --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3;
+    --gold:#87610f;   --gold-soft:#f9efd6;
+    --crit:#a63a2e;   --crit-soft:#fbe9e6;
+    --ok:#1c6d4d;     --ok-soft:#e0f2e8;
+    --code-bg:#eef4f5;
+  }
+  @media (prefers-color-scheme: dark){:root{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0a1013; --ink:#dde7ea; --muted:#8ba0a6; --faint:#5f7278;
+    --line:#1d272c; --panel:#101a1e; --panel2:#16222a; --box:#131f24; --box-line:#33454c;
+    --accent:#3fc6da; --accent-soft:#0c2a31; --gold:#dfaf54; --gold-soft:#2a2212;
+    --crit:#ef8275; --crit-soft:#2d1a17; --ok:#4ec98c; --ok-soft:#0e2a20; --code-bg:#101a1e;
+  }
+  :root[data-theme="light"]{
+    --ground:#fcfdfd; --ink:#0f1619; --muted:#55666c; --faint:#86979d;
+    --line:#dae3e6; --panel:#f1f6f7; --panel2:#e5eef0; --box:#ffffff; --box-line:#b9c9cd;
+    --accent:#0d6e7d; --accent-soft:#dcf0f3; --gold:#87610f; --gold-soft:#f9efd6;
+    --crit:#a63a2e; --crit-soft:#fbe9e6; --ok:#1c6d4d; --ok-soft:#e0f2e8; --code-bg:#eef4f5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--ground); color:var(--ink); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px; margin:0 auto; padding:60px 28px 120px}
+  p,ul,ol{max-width:70ch}
+  header.doc{border-bottom:2px solid var(--ink); padding-bottom:24px}
+  .kicker{font:600 11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.18em; text-transform:uppercase; color:var(--accent); margin:0 0 15px}
+  h1{font:700 2rem/1.14 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.035em; margin:0 0 13px; text-wrap:balance; max-width:26ch}
+  .sub{color:var(--muted); font-size:1.04rem; margin:0 0 22px; max-width:66ch}
+  .byline{display:flex; flex-wrap:wrap; gap:6px 14px; margin:0 0 18px; font:600 12px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--muted)}
+  .byline .lbl{font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint)}
+  .byline .val{color:var(--ink)}
+  .meta{display:flex; flex-wrap:wrap; gap:6px}
+  .chip{font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; padding:5px 9px; border-radius:4px; background:var(--panel2); color:var(--muted); white-space:nowrap}
+  .chip.ok{background:var(--ok-soft); color:var(--ok)} .chip.warn{background:var(--gold-soft); color:var(--gold)}
+  h2{font:700 1.28rem/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:-.02em; margin:52px 0 4px; padding-top:16px; border-top:1px solid var(--line); text-wrap:balance}
+  h2 .status{font-size:.7em; padding:3px 8px; border-radius:5px; vertical-align:middle; margin-left:8px; letter-spacing:0}
+  .st-ok{background:var(--ok-soft); color:var(--ok)} .st-partial{background:var(--gold-soft); color:var(--gold)}
+  h3{font:600 .8rem/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; letter-spacing:.06em; text-transform:uppercase; margin:22px 0 6px; color:var(--faint)}
+  p{margin:12px 0} ul{margin:10px 0; padding-left:20px} li{margin:6px 0} li::marker{color:var(--faint)}
+  strong{font-weight:650} code{font:500 .86em/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; background:var(--code-bg); padding:.12em .38em; border-radius:3px}
+  .commit{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.82em; color:var(--accent)}
+  .cards{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:26px 0}
+  .card{background:var(--box); border:1px solid var(--box-line); border-radius:7px; padding:14px 15px}
+  .card .k{font:600 10px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.1em; color:var(--faint); margin-bottom:7px}
+  .card .v{font:700 1rem/1.25 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .card .v.ok{color:var(--ok)} .card .v.warn{color:var(--gold)}
+  .card .n{font-size:.8rem; color:var(--muted); margin-top:5px; line-height:1.5}
+  .callout{background:var(--panel); border:1px solid var(--line); padding:15px 17px; border-radius:6px; margin:20px 0}
+  .callout.warn{background:var(--gold-soft); border-color:transparent}
+  .callout .lbl{display:block; margin-bottom:7px; font:700 10.5px/1.3 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; text-transform:uppercase; letter-spacing:.11em; color:var(--gold)}
+  .callout p:first-of-type{margin-top:0} .callout>:last-child{margin-bottom:0}
+  footer.doc{margin-top:56px; padding-top:18px; border-top:1px solid var(--line); color:var(--faint); font:600 12px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="doc">
+  <p class="kicker">AI-Broker × AI-Protect · Interface Coverage</p>
+  <h1>What today's commits cover of the AI-Protect interface</h1>
+  <p class="sub">The three interface needs with AI Protect, mapped to what actually landed on <code>feat/ai-broker-beyond-claude</code> today — Codex-scoped, broker side + daemon side. Status is "code built + locally verified"; the live daemon↔broker run happens on the research VM.</p>
+  <div class="byline">
+    <span><span class="lbl">Date</span> <span class="val">14 August 2026</span></span>
+    <span><span class="lbl">Branch</span> <span class="val">feat/ai-broker-beyond-claude</span></span>
+    <span><span class="lbl">Scope</span> <span class="val">Codex-only (broker filter)</span></span>
+  </div>
+  <div class="meta">
+    <span class="chip ok">1 · StartUp — covered</span>
+    <span class="chip ok">2 · Agent Discovered — covered</span>
+    <span class="chip ok">3 · Config notification — single-writer built</span>
+  </div>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="k">1 · StartUp call</div><div class="v ok">Covered</div><div class="n">start_up over the control socket: loads config/creds, starts the local proxy. Called at broker spawn.</div></div>
+  <div class="card"><div class="k">2 · Agent Discovered</div><div class="v ok">Covered (Codex)</div><div class="n">register_agent + discovery-driven push + configurable filter + dedup + real agent identity + logs.</div></div>
+  <div class="card"><div class="k">3 · Config → AI Protect</div><div class="v ok">Built · pending live</div><div class="n">Single-writer: broker renders config → ZIP; ai-protect watches + applies as the owning user. Both sides built; awaits live VM run + default flip.</div></div>
+</div>
+
+<h2>1 · StartUp call <span class="status st-ok">COVERED</span></h2>
+<p><em>"When AI Protect starts, it should call our <code>start_up</code> function which will set up anything we need at bootstrap — loading config, loading cached credentials, start local proxy, etc."</em></p>
+<h3>Built</h3>
+<ul>
+  <li><strong>The call exists.</strong> <code>ControlService::start_up</code> runs over a Unix control socket (<code>ai-broker-mon --control</code>); the daemon's launch subscriber connects and calls it when the broker is spawned.</li>
+  <li><strong>It does the bootstrap work.</strong> It applies the daemon-supplied inputs (bound user, per-user home, credential env), then starts the local LLM proxy — whose <code>sdk_init</code> loads config and cached credentials.</li>
+  <li><strong>Credential loading with real precedence.</strong> supplied JWT → refresh-token renewal (no browser) → interactive OIDC, with the pushed credential threaded via env→sidecar. Plus a mid-life renewal path (request-flag → file-watch push → leg bounce).</li>
+</ul>
+<h3>Commits</h3>
+<ul>
+  <li><span class="commit">2d4bf434</span> broker-side control interface (<code>start_up</code>)</li>
+  <li><span class="commit">5ccd911d</span> daemon calls it (launch subscriber → control client)</li>
+  <li><span class="commit">e2f9cbaa</span> refresh-token support + credential precedence</li>
+  <li><span class="commit">073a37e7</span> daemon credential stub + push into <code>start_up</code></li>
+  <li><span class="commit">e8498629</span> file-watch credential pull + mid-life renewal</li>
+</ul>
+<h3>Not yet</h3>
+<ul>
+  <li>Live daemon↔broker run (validates on the research VM; the broker end is socket-proven locally).</li>
+  <li>Run-as-bound-user privilege drop; Windows named-pipe transport.</li>
+  <li><code>user_jwt</code> is <code>None</code> until AI Protect can source a ZAX user JWT (its fetch is a stub).</li>
+</ul>
+
+<h2>2 · Agent Discovered → register_agent(metadata) <span class="status st-ok">COVERED</span></h2>
+<p><em>"When AI Protect detects an agent is installed, it should call <code>register_agent</code> with the metadata we need."</em></p>
+<h3>Built</h3>
+<ul>
+  <li><strong>The call + metadata exist.</strong> <code>register_agent</code> over the control socket, with <code>RegisterAgentParams</code> (agent_type, version, install_path, config_paths, state).</li>
+  <li><strong>Discovery-driven, not one-shot.</strong> The daemon pushes the full discovered set (from <code>utils::discovery::scan_inventory</code>, mapped to broker ids) at launch <em>and</em> on <code>agentcfg.rescan</code> / <code>inventory.rescan</code> / <code>schedule.tick.scan</code> — so agents found after launch are caught too.</li>
+  <li><strong>Broker owns the policy.</strong> A configurable filter (<code>ZAX_CONTROL_AGENTS</code>, default <code>{codex}</code>) drops the rest; a registered-set dedups (register on first sight, ignore repeats, forget on <code>Removed</code>); wiring is per-agent via the adapter.</li>
+  <li><strong>Right identity + visibility.</strong> Each agent registers under its <em>own</em> binary/name (not a hardcoded Claude), and every decision is logged with the UI name: <code>DROPPED</code> / <code>ACCEPTED</code> / <code>REGISTERED as 'Codex CLI'</code>.</li>
+</ul>
+<h3>Commits</h3>
+<ul>
+  <li><span class="commit">2d4bf434</span> <code>register_agent</code> + schemas</li>
+  <li><span class="commit">5ccd911d</span> daemon pushes at spawn</li>
+  <li><span class="commit">cfa75c21</span> broker-side dedup + push on discovery/rescan</li>
+  <li><span class="commit">5814dc31</span> push-all + configurable allowlist filter</li>
+  <li><span class="commit">9de59291</span> register under the actual agent identity</li>
+  <li><span class="commit">d299956c</span> dropped/accepted/registered logging with the UI name</li>
+</ul>
+<h3>Not yet</h3>
+<ul>
+  <li>Live run (VM). Default filter is Codex-only by design — widen via <code>ZAX_CONTROL_AGENTS</code>.</li>
+  <li>The metadata the daemon actually sends is minimal today (agent_type + state); <code>install_path</code>/<code>version</code> aren't populated yet.</li>
+</ul>
+
+<h2>3 · Config Update Notification to AI Protect <span class="status st-ok">BUILT · PENDING LIVE</span></h2>
+<p><em>"When we have to return configuration for an agent to AI Protect — an AI-Protect function that we call with the agent details."</em></p>
+<p>Resolved as a <strong>single-writer via file-drop + watch</strong> (mirrors the credential flag/watch): the broker <strong>renders</strong> config and drops it as a ZIP; ai-protect <strong>watches and applies</strong> it — so ai-protect is the sole writer of agent config. Both sides are built; the live daemon run is the remaining validation.</p>
+<h3>Built — broker side</h3>
+<ul>
+  <li><code>ConfigSink</code> mode (<code>ZAX_CONFIG_SINK</code>: <code>write</code> default | <code>stage</code>). In <code>stage</code>, <code>register_agent</code> <em>renders</em> the config (compute without writing, <code>toml_cfg::render_mcp_server</code> / <code>AgentAdapter::stage_mcp</code>) and writes <code>$ZAX_DEMO_HOME/config-staging/&lt;agent&gt;-&lt;ts&gt;.zip</code> (0600) with a <code>manifest.json</code> {agent, os_user, files[{path, entry}]} — and does <strong>not</strong> touch the agent config.</li>
+</ul>
+<h3>Built — ai-protect side (single writer)</h3>
+<ul>
+  <li>A per-user <code>config_apply_watcher</code> polls every user's staging dir (<code>identity::home::all_user_homes</code>) and applies each ZIP <strong>as the owning OS user</strong>: <strong>containment</strong> (target must be under that user's home) → <strong>allowlist</strong> (only <code>.codex/config.toml</code> today) → write via <code>utils::atomic_write::write_atomic_under</code> (O_NOFOLLOW-safe under the home + fchown to the user — the vetted <code>hook_installer</code> primitive). Success deletes the ZIP; failure → <code>.zip.failed</code>.</li>
+  <li><strong>Multi-user:</strong> the staging-dir owner is authoritative; a ZIP in user X's dir can only write X's own allowlisted config, owned by X — no escalation. <code>bound_user</code> (ZAX) is irrelevant here; config is keyed by OS user.</li>
+</ul>
+<h3>Remaining</h3>
+<ul>
+  <li><strong>Live validation</strong> on the research VM (the apply watcher runs in the root daemon, unverified live), then <strong>flip the default to <code>stage</code></strong> — that makes ai-protect the single writer in production.</li>
+  <li>Promote both watchers to <code>services::watcher</code>; extend the allowlist as more agents enable.</li>
+</ul>
+<div class="callout warn">
+  <span class="lbl">Config-ownership decision — RESOLVED</span>
+  <p>The integration note's open decision #1 is settled: <strong>ai-protect is the single writer</strong>; the broker renders config and stages it, ai-protect applies it as the owning user. Verified at the component level (broker socket smoke + 4 apply unit tests incl. path-containment/allowlist rejection); pending the live daemon run before the default flips to <code>stage</code>.</p>
+</div>
+
+<h2>Also landed today (supporting)</h2>
+<ul>
+  <li><span class="commit">47c99e91</span> scoped the initial wiring to Codex, Claude excluded.</li>
+  <li>Credential-pull design pivoted from a persistent duplex channel to request-flag + file-watch push; the duplex version was reverted (<span class="commit">4a7cf84f</span>/<span class="commit">ec7534fa</span>) and preserved on branch <code>experiment/ai-broker-duplex-control-channel</code>.</li>
+  <li><span class="commit">5cd75a30</span> noted that the daemon's poll watcher should be promoted to <code>services::watcher</code> after consulting the AI-Protect team.</li>
+  <li><span class="commit">270b86cc</span> config staging (broker renders → ZIP) + <span class="commit">a446454d</span> ai-protect apply watcher (single writer, per-user, allowlisted) — Item 3.</li>
+  <li><span class="commit">8122422c</span> <code>--sim-daemon</code> test harness — plays the control-driver slice of ai-protect (spawn broker → <code>start_up</code> → <code>register_agent(codex)</code> → idle), so Items 1 &amp; 2 can be exercised end-to-end as a non-root user <strong>without</strong> a full daemon (avoids colliding with a ZCC-managed ai-protect). Reuses the real <code>control::protocol</code>; simulates neither hooks (not a broker interface) nor real discovery (hardcodes Codex).</li>
+</ul>
+
+<div class="callout">
+  <span class="lbl">How to exercise 1 &amp; 2</span>
+  <p><code>ai-broker-mon --sim-daemon</code> drives <code>start_up</code> + <code>register_agent(codex)</code> against a live broker + proxy. Credentials come from env (<code>ZAX_USER_JWT</code> / <code>ZAX_REFRESH_TOKEN</code> / …; optional). It stands in for the daemon side of the interface only — the broker code under test is the real thing.</p>
+</div>
+
+<footer class="doc">
+  AI Broker × AI Protect — interface coverage · 14 August 2026 · 1 &amp; 2 covered (Codex-scoped), 3 single-writer built — all pending live VM validation
+</footer>
+</div>
+
+</body>
+</html>

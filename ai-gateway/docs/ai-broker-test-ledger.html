@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AI Broker Test Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================= TOKENS ============================= */
+:root {
+  color-scheme: light dark;
+
+  /* neutrals -- cool, blueprint-tinted, chosen not inherited */
+  --paper:      #F3F5FB;
+  --panel:      #FFFFFF;
+  --panel-2:    #F8F9FD;
+  --ink:        #1A2030;
+  --muted:      #5C6578;
+  --faint:      #8A93A6;
+  --line:       #DEE3EE;
+  --line-soft:  #E9ECF5;
+
+  /* the privilege boundary this whole document is built around */
+  --step:       #35538F;   /* this window / non-elevated / umesh */
+  --step-tint:  #E9EDF9;
+  --helper:     #A16A00;   /* elevated helper / Administrator */
+  --helper-tint:#FBF0D9;
+  --sandbox:    #6B4FA0;   /* isolated ZAX_DEMO_HOME */
+  --sandbox-tint:#EFE8F7;
+  --destructive:#A6432E;
+  --destructive-tint:#F7E6E1;
+
+  --shadow: 0 1px 2px rgba(26,32,48,0.04), 0 8px 24px -12px rgba(26,32,48,0.12);
+  --radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #10131C;
+    --panel:      #171B27;
+    --panel-2:    #1C212F;
+    --ink:        #E7EAF2;
+    --muted:      #9AA3B8;
+    --faint:      #6B7488;
+    --line:       #2A3040;
+    --line-soft:  #232936;
+
+    --step:       #8FADEE;
+    --step-tint:  #202A42;
+    --helper:     #E3B34A;
+    --helper-tint:#332A12;
+    --sandbox:    #B79EE0;
+    --sandbox-tint:#2B2338;
+    --destructive:#E08872;
+    --destructive-tint:#332019;
+
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -16px rgba(0,0,0,0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #10131C;
+  --panel:      #171B27;
+  --panel-2:    #1C212F;
+  --ink:        #E7EAF2;
+  --muted:      #9AA3B8;
+  --faint:      #6B7488;
+  --line:       #2A3040;
+  --line-soft:  #232936;
+
+  --step:       #8FADEE;
+  --step-tint:  #202A42;
+  --helper:     #E3B34A;
+  --helper-tint:#332A12;
+  --sandbox:    #B79EE0;
+  --sandbox-tint:#2B2338;
+  --destructive:#E08872;
+  --destructive-tint:#332019;
+
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px -16px rgba(0,0,0,0.6);
+}
+
+/* ============================= BASE ============================= */
+* { box-sizing: border-box; }
+html { text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+code, .mono { font-family: "IBM Plex Mono", ui-monospace, "Cascadia Code", monospace; }
+h1, h2, h3 { text-wrap: balance; font-weight: 600; margin: 0; }
+p { margin: 0; }
+a { color: var(--step); }
+:focus-visible { outline: 2px solid var(--step); outline-offset: 2px; border-radius: 3px; }
+
+/* ============================= SHELL ============================= */
+.shell { max-width: 1180px; margin: 0 auto; padding: 0 20px 96px; }
+
+/* ---- masthead ---- */
+.masthead {
+  padding: 56px 0 28px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+}
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 10px;
+}
+.masthead h1 {
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -0.01em;
+  max-width: 24ch;
+}
+.masthead .dek {
+  margin-top: 14px;
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 16px;
+}
+.masthead .dek code { color: var(--ink); }
+
+/* ---- boundary key ---- */
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px dashed var(--line);
+}
+.key-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.key-swatch { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+.key-swatch.step { background: var(--step); }
+.key-swatch.helper { background: var(--helper); }
+.key-swatch.sandbox { background: var(--sandbox); border: 1.5px dashed color-mix(in srgb, var(--sandbox) 70%, transparent); background: transparent; box-sizing: border-box; }
+.key-swatch.destructive { background: var(--destructive); border-radius: 50%; }
+
+/* ============================= STEP CARD ============================= */
+.suite { display: flex; flex-direction: column; gap: 22px; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
+}
+.card-num {
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--step);
+  background: var(--step-tint);
+  padding: 3px 9px;
+  border-radius: 6px;
+  letter-spacing: 0.02em;
+  flex: none;
+}
+.card-title { font-size: 18px; font-weight: 600; flex: 1 1 auto; min-width: 200px; }
+.badge {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 6px;
+  flex: none;
+}
+.badge.destructive { color: var(--destructive); background: var(--destructive-tint); }
+.badge.readonly { color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); }
+
+/* two-pane grid: the privilege boundary made visible */
+.card-body {
+  display: grid;
+  grid-template-columns: 1fr 15px 300px;
+}
+.pane-step { padding: 22px 24px 24px; min-width: 0; }
+.pane-helper { padding: 22px 20px 24px 19px; background: var(--panel-2); min-width: 0; }
+.boundary {
+  position: relative;
+  background: linear-gradient(to bottom, transparent, var(--line) 12px, var(--line) calc(100% - 12px), transparent);
+  width: 1px;
+  margin: 0 7px;
+}
+.boundary::before, .boundary::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--helper);
+  transform: translateX(-50%);
+}
+.boundary::before { top: 6px; }
+.boundary::after { bottom: 6px; }
+
+.field { margin-bottom: 16px; }
+.field:last-child { margin-bottom: 0; }
+.field-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--step);
+  margin: 0 0 5px;
+}
+.field-body { color: var(--ink); font-size: 14.5px; max-width: 62ch; }
+.field-body.muted { color: var(--muted); }
+
+/* metadata chip grid */
+.meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 20px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-soft);
+}
+.meta-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin: 0 0 6px;
+}
+.chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.chip .lbl { color: var(--faint); margin-right: 5px; }
+.chip.start .lbl::before { content: "+ "; color: var(--step); font-weight: 600; }
+.chip.stop .lbl::before { content: "\2013 "; color: var(--destructive); font-weight: 600; }
+.chip.port { color: var(--step); border-color: color-mix(in srgb, var(--step) 35%, var(--line)); background: var(--step-tint); }
+.plain { font-size: 13.5px; color: var(--muted); }
+.plain strong { color: var(--ink); font-weight: 600; }
+
+.sandbox-block {
+  border-radius: 7px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+}
+.sandbox-block.yes {
+  border: 1.5px dashed color-mix(in srgb, var(--sandbox) 55%, var(--line));
+  background: var(--sandbox-tint);
+  color: var(--ink);
+}
+.sandbox-block.yes .sandbox-flag { color: var(--sandbox); font-weight: 600; }
+.sandbox-block.no { color: var(--muted); border: 1px solid var(--line); }
+.sandbox-block.no .sandbox-flag { color: var(--muted); font-weight: 600; }
+
+.msg {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  color: var(--ink);
+  overflow-x: auto;
+  line-height: 1.65;
+}
+.msg .arrow { color: var(--step); }
+.msg .field-key { color: var(--faint); }
+
+/* helper pane */
+.helper-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.helper-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--helper); flex: none; }
+.helper-title {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--helper);
+}
+.action {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 7px;
+  padding: 9px 11px;
+  margin-bottom: 9px;
+}
+.action:last-child { margin-bottom: 0; }
+.action-name {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--helper);
+  display: block;
+  margin-bottom: 3px;
+}
+.action-note { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.no-helper {
+  font-size: 13px;
+  color: var(--faint);
+  padding: 11px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  line-height: 1.6;
+}
+
+/* ---- responsive: boundary tips over ---- */
+@media (max-width: 820px) {
+  .card-body { grid-template-columns: 1fr; }
+  .boundary { display: none; }
+  .pane-helper { border-top: 1px dashed var(--line); }
+}
+
+/* ---- footer ---- */
+.colophon {
+  margin-top: 48px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--faint);
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">ai-protect &middot; AI Broker Windows E2E Suite</p>
+    <h1>What each step does, and what it asks the elevated helper to do for it</h1>
+    <p class="dek">Every step in <code>run-e2e-suite.ps1</code> runs in one non-elevated window as <code>umesh</code>. Anything that needs Administrator &mdash; starting the service, reading another session's process owner, reading <code>daemon.log</code> under a SYSTEM-locked directory &mdash; crosses into a second window running <code>run-e2e-suite-elevated-helper.ps1</code> and back. This is that boundary, made visible: the left side of every card is the step itself; the right side is exactly what it asked the elevated side to do.</p>
+    <div class="key">
+      <span class="key-item"><span class="key-swatch step"></span>this window (umesh)</span>
+      <span class="key-item"><span class="key-swatch helper"></span>elevated helper (Administrator)</span>
+      <span class="key-item"><span class="key-swatch sandbox"></span>isolated ZAX_DEMO_HOME</span>
+      <span class="key-item"><span class="key-swatch destructive"></span>destructive step</span>
+    </div>
+  </header>
+
+  <div class="suite">
+
+    <!-- ============================================================ PREFLIGHT -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 0</span>
+        <h2 class="card-title">Preflight &mdash; session, mock device plane, elevated helper</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Two things silently invalidate every later step if wrong: <code>umesh</code> must be the <em>active</em> console session, not just logged in, and the mock device plane must actually be serving <code>ai_broker.enabled: true</code> &mdash; not merely reachable. A prior run's negative case (Step 11) can leave it disabled.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Kills stray processes and scratch directories a crashed prior run left behind, confirms the console session, and either starts the mock fresh or &mdash; if it's already up &mdash; checks what it's actually configured to serve before trusting it.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip stop"><span class="lbl">stray</span>ai-broker-mon.exe</span>
+                <span class="chip start"><span class="lbl">mock</span>python.exe</span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8080 mock device plane</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">~3s mock health confirm &middot; 15s helper reachability probe</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span> &mdash; operates on shared scratch state directly.</div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg"><span class="arrow">GET</span> /health<br><span class="arrow">GET</span> /endpoint/v1/config <span class="field-key">&rarr; checks</span> settings.ai_broker.enabled</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">sc-query</span>
+            <span class="action-note">Cheap reachability probe &mdash; confirms the helper window is alive before anything destructive begins. No side effect.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 1 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 1</span>
+        <h2 class="card-title">Fresh deploy</h2>
+        <span class="badge destructive">Destructive</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Everything below tests <em>this</em> binary pair, not whatever was already on disk &mdash; a stale copy produces a false negative that looks exactly like a real regression.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Stops the service, copies the freshly built daemon and broker executables plus the bundled <code>ai-gateway/config</code> from the build share, then SHA-256 hash-verifies both binaries landed.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip stop">zscaler-ai-protect.exe</span>
+                <span class="chip stop">ai-broker-mon.exe <span class="lbl">leftover</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <p class="plain">none directly &mdash; the proxy goes down with the service</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">~5s inside <code class="mono">sc-stop</code> (drain + force-kill confirm)</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">sc-stop</span>
+            <span class="action-note">Stops the service, then force-kills any leftover daemon/broker process a non-elevated <code>Stop-Process</code> couldn't touch, and confirms clean.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 2 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 2</span>
+        <h2 class="card-title">Path B &mdash; the privilege boundary crossed for real</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">The whole bootstrap sequence in one shot: the SYSTEM daemon drops privilege to spawn the broker as the console user, the daemon writes the first <code>broker.json</code>, and the broker's own proxy child reports back through <code>status.json</code> &mdash; no handshake, just two files each side watches.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Starts the service and reads <code>daemon.log</code> for the spawn and readiness lines.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip start">zscaler-ai-protect.exe <span class="lbl">SYSTEM</span></span>
+                <span class="chip start">ai-broker-mon.exe --control <span class="lbl">umesh</span></span>
+                <span class="chip start">ai-broker-mon.exe --llm-proxy <span class="lbl">child</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8788 LLM proxy (HTTPS)</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">20s for the service to report RUNNING, then up to a further ~20s for the proxy child to bind &mdash; observed as long as ~25s end to end this session</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">daemon <span class="arrow">writes &rarr;</span> broker.json{bound_user, home, agents[]}<br>broker <span class="arrow">writes &rarr;</span> status.json{ready, proxy_base_url}</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">sc-start</span>
+            <span class="action-note">Starts the service, waits 20s, confirms <code>RUNNING</code> via <code>sc.exe query</code>.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 3 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 3</span>
+        <h2 class="card-title">Privilege-drop ownership verification</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">The single most important fact in the whole suite: the daemon stays SYSTEM and the broker &mdash; both of its processes &mdash; runs as the console user, never the other way around.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Reads a cross-session, cross-user process table &mdash; something a non-elevated window structurally cannot do (WMI's <code>GetOwner()</code> errors cross-session).</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <p class="plain">none started &mdash; inspects what Step 2 already started</p>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <p class="plain">n/a</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">60s helper round trip</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">psinfo</span>
+            <span class="action-note"><code>Get-Process -IncludeUserName</code> across sessions, then computes <strong>daemon is SYSTEM</strong> and <strong>broker is not SYSTEM</strong> as two independent booleans.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 4 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 4</span>
+        <h2 class="card-title">TLS + per-install-token, exercised live</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">The proxy Step 2 already started runs the same code an interactive login would &mdash; so its TLS and token-gate behavior can be probed here without a second OIDC round.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Four <code>curl</code> calls against the live proxy (right token, wrong token, no token, plain HTTP), then disambiguates a right-token 401 from the <em>local</em> gate versus the real upstream by counting rejection lines in <code>zax.log</code> before and after.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <p class="plain">none new</p>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8788 probed only</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">immediate &mdash; no polling, the port is already live</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">POST https://127.0.0.1:8788/&lt;token&gt;/v1/responses <span class="field-key">&times;3 token variants</span><br>POST http://127.0.0.1:8788/&lt;token&gt;/v1/responses <span class="field-key">plain, expect refusal</span></div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="no-helper">Not needed &mdash; <code>zax.log</code> lives under umesh's own home, readable directly.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 5 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 5</span>
+        <h2 class="card-title">Unit suites, green on Windows</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Regression coverage for everything this session touched. Split non-elevated / elevated because 8 <code>permission_apply</code> tests and one <code>app_capture</code> test need <code>SeRestorePrivilege</code>, and skip cleanly without it.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body"><code>cargo test</code> twice non-elevated, then a third, elevated pass for the privilege-gated tests.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow"><span class="chip">cargo.exe / rustc.exe</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <p class="plain">none</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">300s helper timeout for the elevated pass</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">cargo-test-elevated</span>
+            <span class="action-note">Runs the 8 <code>permission_apply</code> + 1 <code>app_capture</code> tests that need <code>SeRestorePrivilege</code>. Skips cleanly, reporting success, if no toolchain is on the box.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 6 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 6</span>
+        <h2 class="card-title">secure_file owner-only DACL</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body"><code>llm_leg</code>, <code>sidecar</code>, and <code>mitm</code>'s own <code>restrict_to_owner</code> calls discard their <code>Result</code>, so a DACL failure is silent in the logs &mdash; this check exists because nothing else would ever catch it.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body"><code>Get-Acl</code> on <code>llm-proxy.token</code>, <code>.credentials.json</code>, <code>mitm-ca-key.pem</code>, plus a control file expected <em>not</em> to be locked down. Run as <code>umesh</code> deliberately &mdash; a file's owner always holds <code>READ_CONTROL</code> regardless of what the DACL says.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes / Ports</p>
+              <p class="plain">none &mdash; pure filesystem inspection</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">immediate</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="no-helper">Not needed &mdash; and deliberately not used: elevation would defeat the point of the check.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 7 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 7</span>
+        <h2 class="card-title">Credential refresh, live</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Proves the edge-trigger actually fires end to end: <code>credential_requested</code> is a pure function of the cached JWT's expiry, and ai-protect must notice the false&rarr;true flip and rewrite <code>broker.json</code> &mdash; even though the pushed credential itself is still an empty daemon-side stub.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Ages the cached sidecar directly (<code>zax_expires_at</code> set to now) and polls <code>daemon.log</code> for the resulting refetch.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <p class="plain">none new &mdash; exercises Step 2's already-running broker</p>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <p class="plain">none</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">30s poll, 10&times;3s</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">ages .credentials.json <span class="arrow">&rarr;</span> status.json{credential_requested:true} <span class="arrow">&rarr;</span> broker.json <span class="field-key">rewritten</span></div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">read-daemon-log</span>
+            <span class="action-note">The watcher's own <code>"status.json watcher now polling"</code> startup line, then a live count of <code>"requests a fresh credential"</code> lines to catch the exact tick it fires.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 8 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 8</span>
+        <h2 class="card-title">Config-delta apply, live</h2>
+        <span class="badge destructive">Destructive</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">The one path that genuinely exercises the Windows <code>SetSecurityInfo</code> ownership reassignment &mdash; unit tests can only skip it without <code>SeRestorePrivilege</code>. Also re-proves the allowlist: a delta naming <code>.ssh/authorized_keys</code> must be refused, never written.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body"><strong>Positive:</strong> observe the already-live codex <code>ConfigDelta</code> land. <strong>Negative:</strong> briefly stop the broker (not the daemon), hand-craft a <code>status.json</code> naming a forbidden path, confirm the daemon refuses it &mdash; then restore and force a respawn.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip stop">ai-broker-mon.exe <span class="lbl">briefly, not daemon</span></span>
+                <span class="chip start">ai-broker-mon.exe <span class="lbl">forced respawn</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <p class="plain">:8788 comes back as a side effect of the respawn</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">21s / 15s polls for the two halves, up to 70s for the forced respawn</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">hand-crafted status.json{agents:[{config:[{file:".ssh/authorized_keys"}]}]}</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">read-daemon-log</span>
+            <span class="action-note">Counts <code>"applied config delta ... for agent 'codex'"</code> for the positive case, then <code>"config delta ... failed"</code> for the negative one.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 9 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 9</span>
+        <h2 class="card-title">MCP leg &mdash; the --mcp-server stdio relay</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body"><code>--mcp-server</code> had zero prior Windows coverage. Codex isn't installed on this VM, so the relay is driven directly over the same newline-JSON-RPC protocol an agent would use.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Runs in a background job under a 60s watchdog &mdash; a hang here is itself a finding (interactive OIDC on an aged-out cached credential is the documented risk) &mdash; and drives <code>initialize</code>, <code>ping</code>, <code>tools/list</code>, an unknown method, and a bare notification over stdio.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow"><span class="chip start">ai-broker-mon.exe --mcp-server</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <p class="plain">none &mdash; stdio only</p>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">60s job watchdog</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span> &mdash; standalone, but not an isolated <code>ZAX_DEMO_HOME</code>.</div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">stdin <span class="arrow">&rarr;</span> {initialize, ping, tools/list, "totally/bogus", a notification}<br>stdout <span class="arrow">&larr;</span> 4 JSON-RPC replies (the notification draws none)</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="no-helper">Not needed.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 10 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 10</span>
+        <h2 class="card-title">Negative case &mdash; broker.json protocol-version mismatch</h2>
+        <span class="badge readonly">Read-only</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body"><code>BROKER_PROTOCOL_VERSION</code> now lives on <code>BrokerFile</code> itself, so a mismatch is just a bad number written by hand &mdash; no rebuild, no hash-swapped binary, no elevation. It must refuse cleanly, drop the whole snapshot (not just the version field), and recover the instant a good one lands &mdash; and it must never risk the live service.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Spawns a fully isolated <code>--control</code>, writes <code>protocol_version: 999</code> (must produce <code>ready:false</code>, empty <code>agents[]</code>), then <code>protocol_version: 1</code> (must recover to <code>ready:true</code>).</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip start">ai-broker-mon.exe --control <span class="lbl">sandboxed</span></span>
+                <span class="chip start">ai-broker-mon.exe --llm-proxy <span class="lbl">retried per attempt</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:18788 &mdash; deliberately not :8788</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">27s poll for recovery, 9&times;3s; ~20s internal budget per spawn attempt</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block yes">
+                <span class="sandbox-flag">Yes</span> &mdash; own <code>ZAX_DEMO_HOME</code>. A negative test needs to feed the daemon a broken snapshot with zero chance of touching the real, already-running broker &mdash; which meant hand-reconstructing everything a real home already has: <code>config.yaml</code>, two distinct <code>init.yaml</code> files (per-user and the SDK's own bundled copy), a working directory, and a seeded credential.
+              </div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">broker.json{protocol_version:999,agents:[codex]} <span class="arrow">&rarr;</span> status.json{ready:false, agents:[]}<br>broker.json{protocol_version:1} <span class="arrow">&rarr;</span> status.json{ready:true}</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="no-helper">Not needed &mdash; fully self-contained, never touches the service.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 11 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 11</span>
+        <h2 class="card-title">Negative case &mdash; ai_broker.enabled=false stops a LIVE broker</h2>
+        <span class="badge destructive">Destructive</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Tests the enabled&rarr;disabled <em>transition</em> &mdash; the daemon must reap an already-running broker on the very next settings frame that disables it &mdash; not just a fresh start with the toggle already off.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Adopts a fast 60s heartbeat, flips the mock to disabled and waits for the daemon to stop the live broker, then restores <code>enabled</code>, bumps the version, and waits for both the process <em>and</em> the proxy port to actually come back.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip stop">python.exe <span class="lbl">mock, x2 restarts</span></span>
+                <span class="chip stop">ai-broker-mon.exe <span class="lbl">via reconcile()</span></span>
+                <span class="chip start">ai-broker-mon.exe <span class="lbl">respawned</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8788 down, then up</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">150s poll for the stop (15&times;10s); 90s for the process (18&times;5s) + 30s more for the port</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">/config <span class="field-key">ai_broker.enabled</span> v1 true <span class="arrow">&rarr;</span> v2 false <span class="arrow">&rarr;</span> v3 true</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">sc-stop &middot; sc-start</span>
+            <span class="action-note">Restarts the service so the daemon adopts the fast heartbeat before the disable frame is served.</span>
+          </div>
+          <div class="action">
+            <span class="action-name">read-daemon-log</span>
+            <span class="action-note">Counts <code>"stopped ai-broker-mon"</code> lines to catch a genuinely new stop, not a stale one from an earlier run.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 12 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 12</span>
+        <h2 class="card-title">Parent-death watchdog (orphan guard)</h2>
+        <span class="badge destructive">Destructive</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Before commit <code>f5c3e367</code> there was no Windows watchdog at all &mdash; an orphaned proxy would squat on <code>:8788</code> until someone killed it by hand.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Identifies parent/child PIDs via whichever process owns <code>:8788</code>, kills <em>only</em> the <code>--control</code> parent, and confirms the <code>--llm-proxy</code> child notices and exits within seconds.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip stop">ai-broker-mon.exe --control</span>
+                <span class="chip stop">ai-broker-mon.exe --llm-proxy <span class="lbl">self-exits</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8788 releases, then rebinds</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">20s poll for the child to exit (10&times;2s), then 30s for the port after restart</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">sc-stop &middot; sc-start</span>
+            <span class="action-note">Restarts the service afterward &mdash; this step kills the broker on purpose, so it has to come back before anything later needs it.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 13 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 13</span>
+        <h2 class="card-title">Graceful proxy shutdown</h2>
+        <span class="badge destructive">Destructive</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Evidenced rather than directly instrumented: an ungraceful shutdown would leave <code>:8788</code> orphaned, and the restarted proxy would fail to rebind it. A clean cycle that successfully rebinds is the observable proof.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Stops the service, confirms the port releases; starts it again, confirms it rebinds.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <p class="plain">full service stop / start</p>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8788 down, then up</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">30s poll for the rebind</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">sc-stop &middot; sc-start</span>
+            <span class="action-note">The stop/start cycle under test <em>is</em> the two helper calls this step makes.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ STEP 14 -->
+    <section class="card">
+      <div class="card-head">
+        <span class="card-num">STEP 14</span>
+        <h2 class="card-title">--recover &mdash; the last destructive test</h2>
+        <span class="badge destructive">Destructive</span>
+      </div>
+      <div class="card-body">
+        <div class="pane-step">
+          <div class="field">
+            <p class="field-label">Why</p>
+            <p class="field-body">Reverses the bootstrap's edits, and deliberately proves the self-heal <em>gap</em> the runbook found: <code>reconcile()</code> &mdash; the only reap-and-respawn path &mdash; has exactly one call site, <code>on_settings_received</code>. The broker stays dead until a genuinely new settings frame arrives, never on a timer.</p>
+          </div>
+          <div class="field">
+            <p class="field-label">What / How</p>
+            <p class="field-body">Dry-run first (must change nothing) &rarr; real run (kills both processes, strips codex's MCP entry, drops the cached JWT) &rarr; verify each claim &rarr; prove it stays dead for 90s with no new frame &rarr; restore a session-backed-up credential &rarr; force a new frame &rarr; poll the final state.</p>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Processes</p>
+              <div class="chiprow">
+                <span class="chip stop">ai-broker-mon.exe &times;2 <span class="lbl">toolhelp32 sweep</span></span>
+                <span class="chip start">ai-broker-mon.exe &times;2 <span class="lbl">respawned</span></span>
+              </div>
+            </div>
+            <div>
+              <p class="meta-label">Ports</p>
+              <div class="chiprow"><span class="chip port">:8788 released, then rebound</span></div>
+            </div>
+            <div>
+              <p class="meta-label">Upper limit</p>
+              <p class="plain">90s proving the self-heal gap (9&times;10s); 70s for the respawn (14&times;5s); 60s for the final settle (20&times;3s)</p>
+            </div>
+            <div>
+              <p class="meta-label">Sandbox</p>
+              <div class="sandbox-block no"><span class="sandbox-flag">No</span> &mdash; operates on the broker's real home. The credential is backed up and restored around the destructive step; that's scaffolding for an unattended run, not isolation.</div>
+            </div>
+          </div>
+          <div class="field" style="margin-top:16px;">
+            <p class="field-label">Messages</p>
+            <div class="msg">status.json <span class="field-key">overwritten</span> &middot; .codex\config.toml <span class="field-key">stripped, later re-merged</span><br>.credentials.json <span class="field-key">deleted, restored from backup</span> &middot; CONFIG_VERSION 3 <span class="arrow">&rarr;</span> 4</div>
+          </div>
+        </div>
+        <div class="boundary"></div>
+        <div class="pane-helper">
+          <div class="helper-head"><span class="helper-dot"></span><span class="helper-title">Elevated helper</span></div>
+          <div class="action">
+            <span class="action-name">read-daemon-log</span>
+            <span class="action-note">Confirms the config-delta merge re-wired codex automatically once the broker respawned.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <p class="colophon">Reconstructed from the current <code>commands/run-e2e-suite.ps1</code> and its phase scripts, plus this session's own diagnostic runs. Not run by this suite: the nobody-logged-on negative case (needs a real RDP logoff) and the reboot-survival pass (opt-in, restarts the VM).</p>
+
+</div>
+</body>
+</html>

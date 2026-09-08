@@ -1,0 +1,653 @@
+<title>The Fork Ledger</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#F6F2E9;
+    --paper-raised:#FFFEFB;
+    --ink:#211E1A;
+    --ink-soft:#635C4F;
+    --ink-faint:#8B8474;
+    --line:#DCD3BE;
+    --line-soft:#E9E2D2;
+    --accent:#2C6B58;
+    --accent-strong:#1F5445;
+    --accent-soft:#E1EAE3;
+    --alive:#3C7A5E;
+    --disputed:#9C6B2E;
+    --disputed-bg:#F1E6D2;
+    --dead:#A1483C;
+    --dead-bg:#F3E0DB;
+    --shadow: 0 1px 2px rgba(33,30,26,0.06), 0 6px 16px rgba(33,30,26,0.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#171613;
+      --paper-raised:#1F1D18;
+      --ink:#EDE7D9;
+      --ink-soft:#B0A793;
+      --ink-faint:#7D7565;
+      --line:#39352A;
+      --line-soft:#292519;
+      --accent:#6FBFA0;
+      --accent-strong:#8AD2B4;
+      --accent-soft:#20302A;
+      --alive:#6FBFA0;
+      --disputed:#D9A860;
+      --disputed-bg:#382B18;
+      --dead:#DE9384;
+      --dead-bg:#3A211D;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#171613;
+    --paper-raised:#1F1D18;
+    --ink:#EDE7D9;
+    --ink-soft:#B0A793;
+    --ink-faint:#7D7565;
+    --line:#39352A;
+    --line-soft:#292519;
+    --accent:#6FBFA0;
+    --accent-strong:#8AD2B4;
+    --accent-soft:#20302A;
+    --alive:#6FBFA0;
+    --disputed:#D9A860;
+    --disputed-bg:#382B18;
+    --dead:#DE9384;
+    --dead-bg:#3A211D;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 8px 20px rgba(0,0,0,0.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"IBM Plex Sans", -apple-system, sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:900px;margin:0 auto;padding:64px 28px 120px;}
+
+  h1,h2,h3{font-family:"Fraunces", Georgia, serif;text-wrap:balance;letter-spacing:-0.01em;}
+  h1{font-size:clamp(2.1rem,5vw,2.9rem);font-weight:600;margin:0 0 6px;}
+  h2{font-size:1.5rem;font-weight:600;margin:0 0 6px;color:var(--ink);}
+  h3{font-size:1.05rem;font-weight:600;margin:0 0 4px;}
+  p{margin:0 0 1em;max-width:65ch;}
+  .lede{font-size:1.1rem;color:var(--ink-soft);max-width:58ch;margin:0 0 8px;}
+  .byline{font-family:"IBM Plex Mono",monospace;font-size:0.78rem;color:var(--ink-faint);text-transform:uppercase;letter-spacing:0.08em;margin:0 0 28px;}
+
+  header.hero{margin-bottom:56px;padding-bottom:36px;border-bottom:1px solid var(--line);}
+
+  section{margin:56px 0;}
+  section.story{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:32px clamp(18px,4vw,40px) 30px;
+    box-shadow:var(--shadow);
+  }
+  .story .kicker{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:0.72rem;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--accent);
+    font-weight:600;
+    margin:0 0 8px;
+  }
+  .story .dek{color:var(--ink-soft);margin-bottom:22px;max-width:62ch;}
+
+  figure{margin:0 0 6px;}
+  .diagram-frame{
+    overflow-x:auto;
+    background:var(--paper);
+    border:1px solid var(--line-soft);
+    border-radius:10px;
+    padding:18px 8px;
+  }
+  svg.tree{display:block;margin:0 auto;max-width:100%;height:auto;}
+  svg.tree text{font-family:"IBM Plex Sans",sans-serif;fill:var(--ink);}
+  svg.tree text.mono{font-family:"IBM Plex Mono",monospace;}
+  svg.tree text.sub{fill:var(--ink-soft);}
+  svg.tree text.edge-label{fill:var(--ink-faint);font-size:9.5px;}
+  svg.tree .node-box{stroke:var(--line);fill:var(--paper-raised);}
+  svg.tree .edge-fork{stroke:var(--accent);stroke-width:2;fill:none;}
+  svg.tree .edge-fork-arrow{fill:var(--accent);}
+  svg.tree .edge-partial{stroke:var(--ink-faint);stroke-width:1.4;fill:none;}
+  svg.tree .edge-partial-arrow{fill:var(--ink-faint);}
+  svg.tree .edge-disputed{stroke:var(--disputed);stroke-width:1.4;stroke-dasharray:4 4;fill:none;}
+  svg.tree .edge-disputed-arrow{fill:var(--disputed);}
+  svg.tree .edge-acquired{stroke:var(--dead);stroke-width:1.4;stroke-dasharray:1.5 3;fill:none;}
+  svg.tree .edge-acquired-arrow{fill:var(--dead);}
+  svg.tree .node-dead{fill:var(--dead-bg);stroke:var(--dead);}
+  svg.tree .node-disputed-fill{fill:var(--disputed-bg);}
+  svg.tree .node-alive-accent{stroke:var(--accent);}
+
+  figcaption{
+    font-size:0.86rem;
+    color:var(--ink-soft);
+    margin-top:14px;
+    max-width:68ch;
+  }
+  figcaption b{color:var(--ink);font-weight:600;}
+
+  .legend{
+    display:flex;
+    flex-wrap:wrap;
+    gap:18px;
+    margin-top:16px;
+    padding-top:14px;
+    border-top:1px dashed var(--line);
+    font-size:0.78rem;
+    color:var(--ink-soft);
+  }
+  .legend .item{display:flex;align-items:center;gap:7px;}
+  .legend svg{width:26px;height:12px;flex:none;}
+
+  table{width:100%;border-collapse:collapse;font-size:0.92rem;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top;}
+  th{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:0.7rem;
+    letter-spacing:0.07em;
+    text-transform:uppercase;
+    color:var(--ink-faint);
+    font-weight:600;
+    border-bottom:1px solid var(--line);
+  }
+  td.name{font-weight:600;white-space:nowrap;}
+  td.foundation{color:var(--ink-soft);}
+  .table-wrap{overflow-x:auto;}
+  tr:last-child td{border-bottom:none;}
+
+  .pill{
+    display:inline-block;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:0.68rem;
+    letter-spacing:0.03em;
+    padding:2px 8px;
+    border-radius:99px;
+    white-space:nowrap;
+  }
+  .pill-active{background:var(--accent-soft);color:var(--accent-strong);}
+  .pill-eol{background:var(--dead-bg);color:var(--dead);}
+  .pill-dead{background:var(--dead-bg);color:var(--dead);}
+  .pill-disputed{background:var(--disputed-bg);color:var(--disputed);}
+
+  ol.ledger{list-style:none;margin:0;padding:0;border-left:2px solid var(--line);}
+  ol.ledger li{
+    position:relative;
+    padding:2px 0 22px 26px;
+  }
+  ol.ledger li::before{
+    content:"";
+    position:absolute;
+    left:-6px;top:5px;
+    width:10px;height:10px;
+    border-radius:50%;
+    background:var(--paper-raised);
+    border:2px solid var(--accent);
+  }
+  ol.ledger .date{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:0.76rem;
+    color:var(--accent);
+    font-weight:600;
+    display:block;
+    margin-bottom:2px;
+  }
+  ol.ledger .event{margin:0;color:var(--ink);}
+  ol.ledger .event b{font-weight:600;}
+
+  .independents-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
+    gap:16px;
+    margin-top:8px;
+  }
+  .indie-card{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:16px 18px;
+  }
+  .indie-card h3{font-size:0.98rem;}
+  .indie-card .meta{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:0.72rem;
+    color:var(--ink-faint);
+    margin-bottom:8px;
+    display:block;
+  }
+  .indie-card p{font-size:0.88rem;margin:0;color:var(--ink-soft);}
+
+  footer{
+    margin-top:64px;
+    padding-top:24px;
+    border-top:1px solid var(--line);
+    font-size:0.82rem;
+    color:var(--ink-faint);
+  }
+
+  @media (prefers-reduced-motion: no-preference){
+    section.story{transition:box-shadow 0.2s ease;}
+  }
+</style>
+
+<div class="page">
+
+  <header class="hero">
+    <p class="byline">A field guide to the agents ai-protect tracks</p>
+    <h1>The Fork Ledger</h1>
+    <p class="lede">Eighteen AI coding agents. Most of their names hide more history than they let on — forks of a shared editor, companies that split a deal two ways, a rename forced by a lawyer's letter, a product that changed its name three times in ninety days. This is what actually happened, verified against primary sources rather than assumed.</p>
+  </header>
+
+  <!-- ============ DIAGRAM 1: CODE-OSS FORK FAMILY ============ -->
+  <section class="story">
+    <p class="kicker">Lineage 01 — the editor family</p>
+    <h2>Four forks of one editor, one split down the middle</h2>
+    <p class="dek">Cursor, Windsurf, Kiro, and Antigravity are all descended from Microsoft's open-source Code&nbsp;OSS. Windsurf's July 2025 breakup is the one deal in this whole ledger that's routinely reported wrong — it wasn't an acquisition on either side.</p>
+
+    <figure>
+      <div class="diagram-frame">
+        <svg class="tree" viewBox="0 0 800 400" role="img" aria-label="Code-OSS forks into Cursor, Windsurf, Kiro, and Antigravity. Windsurf splits in July 2025: Google DeepMind gets people and a non-exclusive license only, no equity or code; Cognition acquires the company, product, IP and codebase outright and later renames it Devin Desktop. Cursor's parent company Anysphere is itself acquired by SpaceX for 60 billion dollars, closing August 2026. Continue, a separate VS Code extension, is acquired by Anysphere in June 2026 and discontinued.">
+          <defs>
+            <marker id="fl_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-fork-arrow"/>
+            </marker>
+            <marker id="pt_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-partial-arrow"/>
+            </marker>
+            <marker id="dp_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-disputed-arrow"/>
+            </marker>
+            <marker id="aq_arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-acquired-arrow"/>
+            </marker>
+          </defs>
+
+          <!-- edges tier1 -> tier2 -->
+          <line x1="400" y1="64" x2="130" y2="110" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <line x1="400" y1="64" x2="330" y2="110" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <line x1="400" y1="64" x2="530" y2="110" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <line x1="400" y1="64" x2="700" y2="110" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <text x="205" y="90" class="edge-label mono" text-anchor="middle">fork, 2023</text>
+          <text x="530" y="90" class="edge-label mono" text-anchor="middle">fork, 2025</text>
+          <text x="650" y="90" class="edge-label mono" text-anchor="middle">fork, 2025</text>
+
+          <!-- Antigravity <-> Windsurf disputed cross-link -->
+          <path d="M 625 128 Q 480 150 405 128" class="edge-disputed" marker-end="url(#dp_arrow)"/>
+          <text x="515" y="150" class="edge-label mono" text-anchor="middle">shared Cascade UI? unconfirmed</text>
+
+          <!-- Windsurf split -->
+          <line x1="330" y1="158" x2="230" y2="210" class="edge-partial" marker-end="url(#pt_arrow)"/>
+          <line x1="330" y1="158" x2="430" y2="210" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <text x="245" y="188" class="edge-label mono" text-anchor="middle">Jul 11 2025</text>
+          <text x="440" y="188" class="edge-label mono" text-anchor="middle">Jul 14 2025</text>
+
+          <!-- Cognition -> Devin Desktop -->
+          <line x1="430" y1="264" x2="430" y2="320" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <text x="470" y="296" class="edge-label mono" text-anchor="start">OTA rename, Jun 2 2026</text>
+
+          <!-- Continue -> Cursor acquisition -->
+          <path d="M 650 320 C 480 250, 260 195, 148 160" class="edge-acquired" marker-end="url(#aq_arrow)"/>
+          <text x="420" y="238" class="edge-label mono" text-anchor="middle">acqui-hired &amp; discontinued, Jun 16 2026</text>
+
+          <!-- Cursor -> SpaceX acquisition -->
+          <line x1="130" y1="158" x2="130" y2="320" class="edge-fork" marker-end="url(#fl_arrow)"/>
+          <text x="60" y="250" class="edge-label mono" text-anchor="middle" transform="rotate(-90 60 250)">$60B all-stock, closed Aug 14 2026</text>
+
+          <!-- ROOT -->
+          <rect x="300" y="16" width="200" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="400" y="37" text-anchor="middle" font-size="13.5" font-weight="600">Code OSS / VS Code</text>
+          <text x="400" y="53" text-anchor="middle" class="sub mono" font-size="9.5">Microsoft · open-sourced 2015</text>
+
+          <!-- TIER 2 -->
+          <rect x="55" y="110" width="150" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="130" y="131" text-anchor="middle" font-size="13" font-weight="600">Cursor</text>
+          <text x="130" y="147" text-anchor="middle" class="sub mono" font-size="9.5">Anysphere · Mar 2023</text>
+
+          <rect x="255" y="110" width="150" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="330" y="131" text-anchor="middle" font-size="13" font-weight="600">Windsurf</text>
+          <text x="330" y="147" text-anchor="middle" class="sub mono" font-size="9.5">Codeium · Nov 2024</text>
+
+          <rect x="455" y="110" width="150" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="530" y="131" text-anchor="middle" font-size="13" font-weight="600">Kiro</text>
+          <text x="530" y="147" text-anchor="middle" class="sub mono" font-size="9.5">AWS, in-house · Jul 2025</text>
+
+          <rect x="625" y="110" width="150" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="700" y="131" text-anchor="middle" font-size="13" font-weight="600">Antigravity</text>
+          <text x="700" y="147" text-anchor="middle" class="sub mono" font-size="9.5">Google · Nov 2025</text>
+
+          <!-- TIER 3: Windsurf split -->
+          <rect x="145" y="210" width="170" height="54" rx="9" class="node-box" stroke-width="1.4"/>
+          <text x="230" y="230" text-anchor="middle" font-size="12.5" font-weight="600">Google DeepMind</text>
+          <text x="230" y="245" text-anchor="middle" class="sub" font-size="9.5">people + license only —</text>
+          <text x="230" y="257" text-anchor="middle" class="sub" font-size="9.5">no equity, no codebase</text>
+
+          <rect x="345" y="210" width="170" height="54" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="430" y="230" text-anchor="middle" font-size="12.5" font-weight="600">Cognition</text>
+          <text x="430" y="245" text-anchor="middle" class="sub" font-size="9.5">bought the company, IP,</text>
+          <text x="430" y="257" text-anchor="middle" class="sub" font-size="9.5">brand, product, team</text>
+
+          <!-- TIER 4: Devin Desktop -->
+          <rect x="345" y="320" width="170" height="48" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="430" y="341" text-anchor="middle" font-size="13" font-weight="600">Devin Desktop</text>
+          <text x="430" y="357" text-anchor="middle" class="sub mono" font-size="9.5">= Windsurf, renamed</text>
+
+          <!-- SpaceX node (Cursor's new parent) -->
+          <rect x="45" y="320" width="170" height="48" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="130" y="341" text-anchor="middle" font-size="13" font-weight="600">SpaceX</text>
+          <text x="130" y="357" text-anchor="middle" class="sub mono" font-size="9">Cursor's parent, since Aug 2026</text>
+
+          <!-- Continue satellite -->
+          <rect x="565" y="320" width="170" height="48" rx="9" class="node-box node-dead" stroke-width="1.4" stroke-dasharray="0"/>
+          <text x="650" y="341" text-anchor="middle" font-size="12.5" font-weight="600">Continue</text>
+          <text x="650" y="357" text-anchor="middle" class="sub mono" font-size="9">extension, not a fork · discontinued</text>
+        </svg>
+      </div>
+      <figcaption><b>Not a fork itself:</b> Continue was a VS Code/JetBrains extension, model-agnostic and IDE-agnostic by design — the opposite strategy from forking. Anysphere (Cursor's company) acqui-hired its team on June&nbsp;16, 2026 anyway, and the product is now discontinued, its repo read-only. <b>The same day</b>, SpaceX announced it was buying Anysphere itself for $60B all-stock — the deal closed August&nbsp;14, 2026, making Cursor a SpaceX subsidiary. SpaceX had already absorbed xAI (and Grok, and X) in a separate $1.25T merger on February&nbsp;2, 2026 — see the Grok figure below, now under the same ultimate roof.</figcaption>
+      <div class="legend">
+        <div class="item"><svg viewBox="0 0 26 12"><line x1="2" y1="6" x2="24" y2="6" stroke="var(--accent)" stroke-width="2.4"/></svg> full fork / full acquisition</div>
+        <div class="item"><svg viewBox="0 0 26 12"><line x1="2" y1="6" x2="24" y2="6" stroke="var(--ink-faint)" stroke-width="1.6"/></svg> people / license only, no ownership</div>
+        <div class="item"><svg viewBox="0 0 26 12"><line x1="2" y1="6" x2="24" y2="6" stroke="var(--disputed)" stroke-width="1.6" stroke-dasharray="4 3"/></svg> reported, never confirmed</div>
+        <div class="item"><svg viewBox="0 0 26 12"><line x1="2" y1="6" x2="24" y2="6" stroke="var(--dead)" stroke-width="1.6" stroke-dasharray="1.5 3"/></svg> acquired &amp; folded in</div>
+      </div>
+    </figure>
+  </section>
+
+  <!-- ============ DIAGRAM 2: AWS LINEAGE ============ -->
+  <section class="story">
+    <p class="kicker">Lineage 02 — AWS's own coding assistant</p>
+    <h2>CodeWhisperer, twice renamed, once merged</h2>
+    <p class="dek">AWS didn't fork anyone else's editor for its CLI — it kept relabeling and re-platforming its own. Kiro CLI didn't start from zero; AWS's own launch post says it "uses advanced agent functionality and technology from the Q Developer CLI."</p>
+
+    <figure>
+      <div class="diagram-frame">
+        <svg class="tree" viewBox="0 0 780 220" role="img" aria-label="Amazon CodeWhisperer launched 2022, renamed Amazon Q Developer in April 2024 with real feature changes, then its CLI was rebranded into Kiro CLI in November 2025, inheriting the underlying agent technology. Formal end of support for Amazon Q Developer CLI was announced in April 2026. Amazon Q Business is a separate, unaffected sibling product under the same Amazon Q brand.">
+          <defs>
+            <marker id="fl_arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-fork-arrow"/>
+            </marker>
+            <marker id="pt_arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-partial-arrow"/>
+            </marker>
+          </defs>
+
+          <line x1="185" y1="48" x2="345" y2="48" class="edge-fork" marker-end="url(#fl_arrow2)"/>
+          <text x="265" y="35" class="edge-label mono" text-anchor="middle">rename + superset, Apr 30 2024</text>
+
+          <line x1="525" y1="48" x2="565" y2="48" class="edge-fork" marker-end="url(#fl_arrow2)"/>
+          <text x="545" y="35" class="edge-label mono" text-anchor="middle" font-size="8.5">Nov 17 2025</text>
+
+          <!-- Q Business branch -->
+          <line x1="440" y1="72" x2="440" y2="150" class="edge-partial" marker-end="url(#pt_arrow2)"/>
+          <text x="470" y="115" class="edge-label mono" text-anchor="start">separate sibling brand,</text>
+          <text x="470" y="128" class="edge-label mono" text-anchor="start">unaffected by any of this</text>
+
+          <!-- EOL note -->
+          <text x="440" y="200" text-anchor="middle" class="mono" font-size="9.5" fill="var(--dead)">formal end-of-support announced Apr 30 2026 · new signups blocked May 15 2026</text>
+
+          <rect x="15" y="24" width="170" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="100" y="45" text-anchor="middle" font-size="12.5" font-weight="600">CodeWhisperer</text>
+          <text x="100" y="61" text-anchor="middle" class="sub mono" font-size="9">preview Jun 2022</text>
+
+          <rect x="345" y="24" width="180" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="435" y="45" text-anchor="middle" font-size="12.5" font-weight="600">Amazon Q Developer</text>
+          <text x="435" y="61" text-anchor="middle" class="sub mono" font-size="9">CLI, IDE plugins, console chat</text>
+
+          <rect x="365" y="150" width="150" height="48" rx="9" class="node-box" stroke-width="1.4"/>
+          <text x="440" y="171" text-anchor="middle" font-size="12" font-weight="600">Amazon Q Business</text>
+          <text x="440" y="187" text-anchor="middle" class="sub mono" font-size="8.5">enterprise assistant, not coding</text>
+
+          <rect x="565" y="24" width="180" height="48" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="655" y="45" text-anchor="middle" font-size="12.5" font-weight="600">Kiro CLI</text>
+          <text x="655" y="61" text-anchor="middle" class="sub mono" font-size="9">inherits Q Developer's agent tech</text>
+        </svg>
+      </div>
+      <figcaption>Kiro CLI is backward-compatible on purpose — <code>q</code> and <code>q chat</code> still work, and it reads existing <code>.amazonq</code> folders. The license changed underneath it, though: Apache-2.0 to the AWS IP License. Kiro the IDE (Code-OSS fork, previous figure) shipped the same week as Kiro CLI, sharing only the brand.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ DIAGRAM 3: OPENCLAW ============ -->
+  <section class="story">
+    <p class="kicker">Lineage 03 — three names in ninety days</p>
+    <h2>ClawdBot → Moltbot → OpenClaw</h2>
+    <p class="dek">One project, one codebase, forced to change its name twice under real pressure each time.</p>
+
+    <figure>
+      <div class="diagram-frame">
+        <svg class="tree" viewBox="0 0 780 130" role="img" aria-label="ClawdBot, launched November 2025 by Peter Steinberger, was renamed Moltbot in January 2026 after an Anthropic trademark cease-and-desist. Forty-eight hours later, on January 29 2026, it was renamed again to OpenClaw due to low recognition, crypto scammers hijacking abandoned accounts, and a security researcher finding over a thousand malicious skills in its registry. It is now stewarded by the nonprofit OpenClaw Foundation.">
+          <defs>
+            <marker id="fl_arrow3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-fork-arrow"/>
+            </marker>
+          </defs>
+
+          <line x1="195" y1="48" x2="315" y2="48" class="edge-fork" marker-end="url(#fl_arrow3)"/>
+          <text x="255" y="35" class="edge-label mono" text-anchor="middle">Anthropic C&amp;D over "Clawd", Jan 2026</text>
+
+          <line x1="475" y1="48" x2="595" y2="48" class="edge-fork" marker-end="url(#fl_arrow3)"/>
+          <text x="535" y="35" class="edge-label mono" text-anchor="middle">48 hrs later — Jan 29 2026</text>
+          <text x="535" y="72" class="edge-label mono" text-anchor="middle">scandal + scam-hijacked accounts</text>
+
+          <rect x="15" y="24" width="180" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="105" y="45" text-anchor="middle" font-size="12.5" font-weight="600">ClawdBot</text>
+          <text x="105" y="61" text-anchor="middle" class="sub mono" font-size="9">P. Steinberger · Nov 2025</text>
+
+          <rect x="315" y="24" width="160" height="48" rx="9" class="node-box node-dead" stroke-width="1.4"/>
+          <text x="395" y="45" text-anchor="middle" font-size="12.5" font-weight="600">Moltbot</text>
+          <text x="395" y="61" text-anchor="middle" class="sub mono" font-size="9">lived ~48 hours</text>
+
+          <rect x="595" y="24" width="170" height="48" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="680" y="45" text-anchor="middle" font-size="12.5" font-weight="600">OpenClaw</text>
+          <text x="680" y="61" text-anchor="middle" class="sub mono" font-size="9">OpenClaw Foundation</text>
+        </svg>
+      </div>
+      <figcaption>The OpenClaw-era rewrite is also where the config format ai-protect's own adapter targets was introduced — YAML config, the <code>skill.md</code> standard, and the ClawHub marketplace.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ DIAGRAM 4: OPENCODE ============ -->
+  <section class="story">
+    <p class="kicker">Lineage 04 — a name, fought over</p>
+    <h2>TermAI splits into two, one keeps the name</h2>
+    <p class="dek">Not every rename is a company rebranding its own product. This one is a falling-out between a solo maintainer and the team that adopted his project.</p>
+
+    <figure>
+      <div class="diagram-frame">
+        <svg class="tree" viewBox="0 0 720 220" role="img" aria-label="TermAI, a Go terminal AI agent by Kujtim Hoxha, was renamed OpenCode after the SST team collaborated with him and bought the opencode.ai domain. A 2025 ownership dispute then split the project in two: Charm hired Hoxha and continued his branch under the new name Crush, while SST kept the OpenCode name and rewrote it from scratch in TypeScript, launching publicly on June 19 2025.">
+          <defs>
+            <marker id="fl_arrow4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-fork-arrow"/>
+            </marker>
+          </defs>
+
+          <line x1="235" y1="48" x2="365" y2="48" class="edge-fork" marker-end="url(#fl_arrow4)"/>
+          <text x="300" y="35" class="edge-label mono" text-anchor="middle">SST buys opencode.ai</text>
+
+          <line x1="450" y1="72" x2="270" y2="150" class="edge-fork" marker-end="url(#fl_arrow4)"/>
+          <line x1="450" y1="72" x2="530" y2="150" class="edge-fork" marker-end="url(#fl_arrow4)"/>
+          <text x="450" y="105" class="edge-label mono" text-anchor="middle">2025 ownership dispute</text>
+
+          <rect x="55" y="24" width="180" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="145" y="45" text-anchor="middle" font-size="12.5" font-weight="600">TermAI</text>
+          <text x="145" y="61" text-anchor="middle" class="sub mono" font-size="9">K. Hoxha, Go</text>
+
+          <rect x="365" y="24" width="170" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="450" y="45" text-anchor="middle" font-size="12.5" font-weight="600">OpenCode (v1)</text>
+          <text x="450" y="61" text-anchor="middle" class="sub mono" font-size="9">Hoxha + SST, collaborating</text>
+
+          <rect x="185" y="150" width="170" height="48" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="270" y="171" text-anchor="middle" font-size="12.5" font-weight="600">Crush</text>
+          <text x="270" y="187" text-anchor="middle" class="sub mono" font-size="9">Charm hires Hoxha</text>
+
+          <rect x="445" y="150" width="170" height="48" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="530" y="171" text-anchor="middle" font-size="12.5" font-weight="600">OpenCode</text>
+          <text x="530" y="187" text-anchor="middle" class="sub mono" font-size="9">SST keeps the name, rewrites in TS</text>
+        </svg>
+      </div>
+      <figcaption>The <code>opencode-ai</code> npm package tracked in ai-protect's adapter is the SST/TypeScript branch — the one that kept the name after the split, not the original Go codebase.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ DIAGRAM 5: GROK ============ -->
+  <section class="story">
+    <p class="kicker">Lineage 05 — two products, deliberately not connected</p>
+    <h2>xAI's Grok Build, and the "Grok CLI" that isn't</h2>
+    <p class="dek">These two have no shared history at all — which is exactly the point of drawing them apart rather than together. The one this session's own <code>grok.rs</code> adapter almost shipped against was the wrong one.</p>
+
+    <figure>
+      <div class="diagram-frame">
+        <svg class="tree" viewBox="0 0 720 170" role="img" aria-label="Two entirely separate lineages, deliberately drawn with no connecting line. On the left, xAI's own official product, Grok Build, installed via a curl script or the xai-official npm package. On the right, a third-party wrapper published by Superagent under the vibe-kit npm scope, last updated November 2025 and now stale, succeeded by a project explicitly stating it is not affiliated with, endorsed by, or sponsored by xAI.">
+          <defs>
+            <marker id="fl_arrow5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-fork-arrow"/>
+            </marker>
+            <marker id="pt_arrow5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <polygon points="0,0 10,5 0,10" class="edge-partial-arrow"/>
+            </marker>
+          </defs>
+
+          <text x="165" y="20" text-anchor="middle" class="mono" font-size="9.5" fill="var(--accent)" font-weight="600">OFFICIAL</text>
+          <line x1="165" y1="48" x2="165" y2="100" class="edge-fork" marker-end="url(#fl_arrow5)"/>
+          <rect x="80" y="26" width="170" height="42" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="165" y="45" text-anchor="middle" font-size="12.5" font-weight="600">xAI</text>
+          <text x="165" y="60" text-anchor="middle" class="sub mono" font-size="8">now part of SpaceX, Feb 2026</text>
+          <rect x="80" y="100" width="170" height="48" rx="9" class="node-box node-alive-accent" stroke-width="1.8"/>
+          <text x="165" y="121" text-anchor="middle" font-size="12.5" font-weight="600">Grok Build</text>
+          <text x="165" y="137" text-anchor="middle" class="sub mono" font-size="8.5">curl install · @xai-official/grok</text>
+
+          <text x="555" y="20" text-anchor="middle" class="mono" font-size="9.5" fill="var(--disputed)" font-weight="600">UNOFFICIAL</text>
+          <line x1="555" y1="48" x2="555" y2="76" class="edge-partial" marker-end="url(#pt_arrow5)"/>
+          <line x1="555" y1="124" x2="555" y2="150" class="edge-partial" marker-end="url(#pt_arrow5)"/>
+          <rect x="470" y="26" width="170" height="42" rx="9" class="node-box" stroke-width="1.6"/>
+          <text x="555" y="47" text-anchor="middle" font-size="12" font-weight="600">Superagent / VibeKit</text>
+          <rect x="470" y="76" width="170" height="48" rx="9" class="node-box node-disputed-fill" stroke="var(--disputed)" stroke-width="1.4"/>
+          <text x="555" y="97" text-anchor="middle" font-size="12" font-weight="600">@vibe-kit/grok-cli</text>
+          <text x="555" y="112" text-anchor="middle" class="sub mono" font-size="8.5">stale since Nov 27 2025</text>
+          <rect x="470" y="150" width="170" height="16" rx="7" class="node-box" stroke-width="1"/>
+          <text x="555" y="162" text-anchor="middle" font-size="9" font-weight="500">grok-dev / superagent-ai</text>
+        </svg>
+      </div>
+      <figcaption>No line connects the two halves of this figure — that gap is the whole finding. This session's <code>grok.rs</code> adapter originally pointed at the <code>@vibe-kit/grok-cli</code> install footprint before being corrected to target the real, confirmed <code>~/.grok/user-settings.json</code> mechanism; worth a re-check now that xAI's own product and branding are this much clearer. One more twist since: xAI merged into SpaceX on February&nbsp;2, 2026 ($1.25T, folding in Grok and X) — and SpaceX went on to buy Cursor's parent company, Anysphere, that June. Grok and Cursor, unrelated in code, now share an ultimate owner.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ INDEPENDENTS ============ -->
+  <section>
+    <h2 style="margin-bottom:6px;">Nine agents with no fork story</h2>
+    <p class="lede" style="margin-bottom:24px;">Built by the model maker for its own model, or built from scratch on purpose. No editor to fork, no rename to escape, no company to be absorbed by — the ones below are here because they were built, not because something happened to them.</p>
+    <div class="independents-grid">
+      <div class="indie-card">
+        <span class="meta">ANTHROPIC · IN-HOUSE</span>
+        <h3>Claude Code</h3>
+        <p>The model maker's own first-party terminal client — no editor fork, nothing to fork from.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">OPENAI · IN-HOUSE / REVIVED BRAND</span>
+        <h3>Codex</h3>
+        <p>The name is a revival: the original 2021 Codex model was discontinued in 2023, then reused in 2025 for an unrelated terminal coding agent.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">GOOGLE · IN-HOUSE</span>
+        <h3>Gemini CLI</h3>
+        <p>Google's own terminal agent, separate from — and older than — the Windsurf-adjacent Antigravity IDE above.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">MICROSOFT / GITHUB · 2021</span>
+        <h3>GitHub Copilot / Copilot CLI</h3>
+        <p>The original mainstream "AI pair programmer" brand — an extension across IDEs, not a fork of one.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">COGNITION · IN-HOUSE</span>
+        <h3>Devin CLI</h3>
+        <p>Cognition's terminal surface for its autonomous-engineer product — sibling to Devin Desktop (ex-Windsurf), same company, unrelated codebase.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">ZED INDUSTRIES · 2021 / RUST</span>
+        <h3>Zed</h3>
+        <p>Built from scratch on its own GPU-rendered UI framework by ex-Atom, ex-Tree-sitter creators — no Electron, no Code-OSS. AI (co-developed with Anthropic) was layered on in Aug 2024, four years after the editor itself.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">PAUL GAUTHIER · APR 2023 · SOLO</span>
+        <h3>Aider</h3>
+        <p>Git-native by design — every AI edit is a real, revertable commit. Still one person's project; maintenance cadence has visibly slowed through 2026.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">FORMERLY SOURCEGRAPH · NOW AMP INC.</span>
+        <h3>Amp</h3>
+        <p>Launched inside Sourcegraph (May 2025), spun out as its own independent company (Dec 2025). Core differentiator survived the spinout: zero markup on provider API cost.</p>
+      </div>
+      <div class="indie-card">
+        <span class="meta">MICROSOFT · THE FORK ROOT ITSELF</span>
+        <h3>VS Code</h3>
+        <p>Not tracked as its own LLM leg — ai-protect routes plain VS Code installs to the Copilot adapter instead, since that's the extension actually doing the talking.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SUMMARY TABLE ============ -->
+  <section>
+    <h2>All eighteen, side by side</h2>
+    <p class="lede" style="margin-bottom:20px;">What each one is actually for, stripped of marketing language.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Agent</th><th>Foundation</th><th>Why it exists</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="name">Claude Code</td><td class="foundation">In-house (Anthropic)</td><td>Anthropic's own first-party terminal client</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Codex</td><td class="foundation">In-house; revived brand</td><td>OpenAI's own terminal agent, tied to ChatGPT plans</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Gemini CLI</td><td class="foundation">In-house (Google)</td><td>Google's own terminal agent</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Cursor</td><td class="foundation">Code-OSS fork (Anysphere → SpaceX, Aug 2026)</td><td>Agent-first GUI editor, not AI bolted onto an old one</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">GitHub Copilot</td><td class="foundation">In-house (Microsoft/GitHub)</td><td>The original mainstream AI-pair-programmer brand</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Devin CLI</td><td class="foundation">In-house (Cognition)</td><td>Terminal surface for Cognition's "AI software engineer"</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Grok (CLI)</td><td class="foundation">Third-party (Superagent/VibeKit)</td><td>Community wrapper around xAI's API — not xAI's own product</td><td><span class="pill pill-disputed">unofficial</span></td></tr>
+          <tr><td class="name">Windsurf / Devin Desktop</td><td class="foundation">Code-OSS fork (Codeium → Cognition)</td><td>Agent-first GUI editor, now Cognition's desktop flagship</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Antigravity</td><td class="foundation">Code-OSS fork (Google)</td><td>Google's multi-agent orchestration IDE</td><td><span class="pill pill-disputed">disputed lineage</span></td></tr>
+          <tr><td class="name">Kiro</td><td class="foundation">Code-OSS fork (AWS, in-house)</td><td>Spec-driven agentic IDE tied to AWS identity</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Amazon Q Developer CLI</td><td class="foundation">In-house (AWS)</td><td>AWS's first-gen coding CLI, now folded into Kiro</td><td><span class="pill pill-eol">EOL</span></td></tr>
+          <tr><td class="name">Continue</td><td class="foundation">VS Code/JetBrains extension</td><td>Open, model-agnostic config for any IDE, any provider</td><td><span class="pill pill-dead">discontinued</span></td></tr>
+          <tr><td class="name">Zed</td><td class="foundation">From scratch (Rust/GPUI)</td><td>Native performance + real-time multiplayer editing first, AI second</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">OpenCode</td><td class="foundation">TS rewrite of a forked Go project (SST)</td><td>Provider-agnostic (75+ models), client/server split</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">VS Code</td><td class="foundation">In-house (Microsoft) — the fork root</td><td>Routed to the Copilot adapter, not wired independently</td><td><span class="pill pill-active">dormant here</span></td></tr>
+          <tr><td class="name">Aider</td><td class="foundation">From scratch (solo, Python)</td><td>Git-native pair programming — every change is a real commit</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">Amp</td><td class="foundation">From scratch; spun out of Sourcegraph</td><td>Zero markup on provider API cost, by design</td><td><span class="pill pill-active">active</span></td></tr>
+          <tr><td class="name">OpenClaw</td><td class="foundation">From scratch (ex-ClawdBot/Moltbot)</td><td>Open-source agent gateway with an MCP-style server registry</td><td><span class="pill pill-active">active</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ M&A LEDGER ============ -->
+  <section>
+    <h2>The mergers, splits, and rebrands, in order</h2>
+    <p class="lede" style="margin-bottom:24px;">Every company-level event behind the names above, dated as precisely as the sources allow.</p>
+    <ol class="ledger">
+      <li><span class="date">Apr 30 2024</span><p class="event"><b>CodeWhisperer → Amazon Q Developer.</b> AWS folds its coding assistant into the new Q brand — a real feature superset, not just a relabel.</p></li>
+      <li><span class="date">May 2025</span><p class="event"><b>Amp launches inside Sourcegraph.</b> A research preview, not yet its own company.</p></li>
+      <li><span class="date">Jul 11 2025</span><p class="event"><b>Google hires Windsurf's leadership.</b> A reverse acqui-hire (~$2.4B): CEO Varun Mohan, co-founder Douglas Chen, and R&amp;D staff move to Google DeepMind, plus a non-exclusive tech license. No equity, no company, no codebase.</p></li>
+      <li><span class="date">Jul 14 2025</span><p class="event"><b>Cognition acquires Windsurf.</b> Days later, Cognition buys what's left of the company outright — product, IP, brand, ~$82M ARR, 350+ enterprise customers, remaining staff.</p></li>
+      <li><span class="date">Jul 14 2025</span><p class="event"><b>Kiro launches.</b> AWS's own in-house Code-OSS fork, announced the same week as the Windsurf split — no relation to it.</p></li>
+      <li><span class="date">Nov 2025</span><p class="event"><b>ClawdBot launches.</b> Peter Steinberger's project, the start of the three-name chain.</p></li>
+      <li><span class="date">Nov 17 2025</span><p class="event"><b>Kiro reaches GA; Amazon Q Developer CLI is rebranded into Kiro CLI.</b> Inherited agent tech, not a rewrite; <code>q</code> commands still work.</p></li>
+      <li><span class="date">Nov 18 2025</span><p class="event"><b>Antigravity launches.</b> Google's own agent-orchestration IDE — the Windsurf-code question starts here, and stays unresolved.</p></li>
+      <li><span class="date">Dec 2025</span><p class="event"><b>Amp spins out of Sourcegraph</b> as independent Amp Inc.</p></li>
+      <li><span class="date">Jan 2026</span><p class="event"><b>ClawdBot → Moltbot,</b> forced by an Anthropic cease-and-desist over trademark similarity to "Claude."</p></li>
+      <li><span class="date">Jan 29 2026</span><p class="event"><b>Moltbot → OpenClaw,</b> 48 hours later — low recognition, crypto scammers hijacking abandoned accounts, and 1,467 malicious skills found in the registry.</p></li>
+      <li><span class="date">Feb 2 2026</span><p class="event"><b>SpaceX merges with xAI</b> — $1.25 trillion all-stock, the largest private merger ever, folding in Grok and the X platform. Tesla deliberately left out.</p></li>
+      <li><span class="date">~Apr 30 2026</span><p class="event"><b>Amazon Q Developer CLI's formal end-of-support</b> is announced; new signups blocked May 15, full support ends April 2027.</p></li>
+      <li><span class="date">Jun 2 2026</span><p class="event"><b>Windsurf → Devin Desktop,</b> Cognition's OTA rebrand of the product it bought eleven months earlier.</p></li>
+      <li><span class="date">Jun 16 2026</span><p class="event"><b>SpaceX agrees to buy Anysphere (Cursor) for $60B all-stock</b> — the largest acquisition of a venture-backed startup ever recorded.</p></li>
+      <li><span class="date">Jun 16 2026</span><p class="event"><b>Same day: Anysphere acqui-hires Continue's team.</b> The product is discontinued; its repo goes read-only.</p></li>
+      <li><span class="date">Aug 14 2026</span><p class="event"><b>The SpaceX–Anysphere deal closes</b> — ahead of the Q3 2026 target. Cursor is now a SpaceX subsidiary, under the same roof as Grok and X.</p></li>
+    </ol>
+  </section>
+
+  <footer>
+    Compiled from primary sources — company blog posts, official docs, and contemporaneous reporting — cross-checked rather than recalled. Two claims are marked <em>disputed</em>/<em>unconfirmed</em> above where sources genuinely disagree or the owning company has never clarified; everything else was independently verified. Two AWS documentation pages fetched while researching this contained an appended instruction to run an unrelated CLI command — not part of the real documentation, and not acted on.
+  </footer>
+
+</div>

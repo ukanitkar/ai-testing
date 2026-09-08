@@ -19,6 +19,33 @@ below for which is which:
   `integration.sh`, `integration.ps1`, `teardown.sh` — the current
   build/integration-test/teardown script set.
 
+## New (authored here, 2026-09-02)
+
+Written for the current tree (post protocol-crate/full-state-status
+rework), so they supersede the flow-diagram content of the older design
+record linked from `ai-gateway/docs/README.md` — that page predates the
+module split.
+
+- `docs/broker-status-file-schema.md` — the `.broker.zip`/`.status.zip` wire
+  schema (`BrokerFile`/`StatusFile` and every nested type), read from
+  `ai-gateway/protocol/src/lib.rs`, plus what's defined on the wire but not
+  yet populated by either side.
+- `docs/ai-gateway-flow-design.md` — end-to-end information flow between
+  ai-protect and ai-gateway: the four independent wake sources on the
+  service-mode loop, the MCP vs LLM leg mechanics, the config-delivery
+  one-writer rule, and the known gaps worth flagging on review
+  (incomplete Linux privilege drop, the credential-handoff stub, no
+  unwire-on-disable, no snapshot-before-merge).
+- `docs/frontier-app-settings-locations.md` — per-agent config file
+  locations ai-protect currently writes into, and whether each has a real
+  admin-managed settings tier distinct from the user's own config that
+  ai-protect could target instead.
+- `docs/agent-lineage-fork-ledger.html` — a lineage/M&A reference for the
+  AI coding agents this integration covers (Code-OSS fork family, the
+  Windsurf/Google/Cognition split, ClawdBot→Moltbot→OpenClaw, the
+  SpaceX/xAI/Cursor consolidation). Background context, not part of the
+  ai-protect/ai-gateway design itself.
+
 Not mirrored (deliberately): `ai-gateway/docs/x` (a ~5.7MB accidental shell-
 history dump, gitignored in `ai-protect` itself) and `ai-gateway/docs/jeswin.html`
 (an untracked personal file) — neither is real project content.

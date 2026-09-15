@@ -1,0 +1,266 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>Copilot desktop apps coverage gap</title>
+<style>
+body {
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: #1a1a1a;
+  line-height: 1.6;
+  font-size: 16px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+h1 { font-size: 26px; border-bottom: 3px solid #2c6b58; padding-bottom: 10px; color: #16352c; }
+h2 { font-size: 19px; color: #1f5445; margin-top: 36px; border-bottom: 1px solid #d8d2c2; padding-bottom: 6px; }
+h3 { font-size: 15px; color: #2c6b58; margin-top: 26px; }
+p { margin: 10px 0; }
+a { color: #1f5445; text-decoration: none; border-bottom: 1px dotted #1f5445; }
+code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: #f1efe6;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: #5a3d1f;
+}
+pre {
+  background: #f6f4ec;
+  border: 1px solid #e2ddc9;
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+pre code { background: none; padding: 0; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 14px; }
+th, td { border: 1px solid #d8d2c2; padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: #e1eae3; color: #16352c; font-weight: 600; }
+tr:nth-child(even) td { background: #faf9f5; }
+blockquote { border-left: 3px solid #c98a3e; margin: 12px 0; padding: 6px 16px; background: #f9f1e4; color: #4a3820; }
+hr { border: none; border-top: 1px solid #d8d2c2; margin: 28px 0; }
+ul, ol { padding-left: 24px; }
+li { margin: 4px 0; }
+strong { color: #16352c; }
+</style></head><body><h1>"Copilot doesn't work" outside VS Code — findings</h1>
+<p>Written 2026-09-15, in response to a field report that "the Copilot work we
+have done works for VS Code, but not for GitHub app and Copilot app." Short
+answer: the report conflates three (really four) distinct surfaces that
+share the word "Copilot," only one of which our <code>ai-gateway</code> adapter
+(<code>ai-gateway/agent-manager/src/agents/copilot.rs</code>) ever targeted. This isn't
+a regression in existing code — it's a scope question, and one of the two
+named apps turns out to need a different <em>kind</em> of solution than a config
+key we got wrong.</p>
+<p><strong>Update 2026-09-15:</strong> the VS Code Copilot Chat question (row 2 below) is
+now resolved — see its own section — leaving the GitHub Copilot app as the
+only surface still genuinely open.</p>
+<h2>The four surfaces, disambiguated</h2>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>What it actually is</th>
+<th>In our adapter's scope today?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>GitHub Copilot CLI</strong> (<code>copilot</code> command, npm <code>@github/copilot</code>)</td>
+<td>The thing <code>copilot.rs</code> was built for</td>
+<td>Yes — this is "the Copilot work" that exists</td>
+</tr>
+<tr>
+<td><strong>VS Code's built-in Copilot Chat extension</strong></td>
+<td>A separate code path inside VS Code itself</td>
+<td><strong>No, and confirmed correctly so</strong> — <code>vscode.rs</code> has <code>llm: LlmRouting::None</code>, and the extension itself has no working redirect mechanism to target. See "VS Code's built-in Copilot Chat extension" below</td>
+</tr>
+<tr>
+<td><strong>GitHub Copilot app</strong> (<code>github.com/features/ai/github-app</code>)</td>
+<td>A brand-new, separate desktop application — "the only desktop experience for agent-driven development built natively on GitHub." Not the classic GitHub Desktop git client</td>
+<td>No — never targeted. See findings below; bringing it in scope needs new, riskier tooling</td>
+</tr>
+<tr>
+<td><strong>Microsoft 365 Copilot app</strong> (<code>microsoft.com/.../download-copilot-app</code>)</td>
+<td>A completely different Microsoft product (confirmed on Microsoft's own page: <em>"a completely separate product from GitHub Copilot"</em>). Talks to Outlook/Word/Excel/PowerPoint, not GitHub's Copilot backend</td>
+<td><strong>Out of scope permanently</strong> — there is no shared backend to intercept. This is a category error, not a gap</td>
+</tr>
+</tbody>
+</table>
+<h2>VS Code's built-in Copilot Chat extension — resolved 2026-09-15</h2>
+<p>Investigated as the third surface in the table above, since it's the one
+most likely to be what the original "works for VS Code" report actually
+meant.</p>
+<p><strong>Our own code already treats this as out of scope, and correctly so.</strong>
+<code>ai-gateway/agent-manager/src/agents/vscode.rs</code> sets <code>llm: LlmRouting::None</code>
+and the adapter is dormant — <code>"vscode"</code> isn't in <code>ENABLED_AGENTS</code>. Discovery
+maps a <code>vscode</code> session to the <code>copilot</code> broker identity purely because
+"Copilot Chat is the agent behind the editor" (its own doc comment), but
+that's identity attribution only: <code>copilot.rs</code>'s actual redirect mechanism
+writes to <code>~/.copilot/mcp-config.json</code> / <code>~/.copilot/settings.json</code> — the
+standalone CLI's home directory, which the VS Code extension never reads.
+<code>docs/SYSTEM-OVERVIEW.md</code> already flagged this: "the VS Code Copilot Chat
+extension's sessions stay opaque."</p>
+<p><strong>No working interception mechanism exists in the extension itself, either.</strong>
+Verified against the extension's own contributed-settings schema and a
+maintainer-tracked issue, not guessed:</p>
+<ul>
+<li><code>github.copilot.advanced.debug.overrideProxyUrl</code> / <code>overrideCapiUrl</code> are
+  real settings, but their documented purpose is overriding the GitHub
+  <em>authentication</em> proxy, not chat/inference traffic — and a confirmed
+  <a href="https://github.com/microsoft/vscode-copilot-release/issues/7802">GitHub issue</a>
+  shows <code>github.copilot-chat</code> <strong>ignores them entirely</strong>; only the older,
+  separate inline-completion extension (<code>github.copilot</code>) honors them.</li>
+<li>VS Code's supported customization path, BYOK (<code>chatLanguageModels.json</code>),
+  is strictly additive — it registers a new selectable model next to
+  Copilot's own in the model picker, requiring manual/pinned selection. It
+  cannot redirect or intercept Copilot's own default traffic.</li>
+<li>On this Mac, the extension isn't even installed (<code>chatLanguageModels.json</code>
+  is <code>[]</code>; no <code>github.copilot-chat</code> under <code>~/.vscode/extensions</code>), consistent
+  with nobody having wired a live config surface for it.</li>
+</ul>
+<p>A subsequent AI-generated answer (Google AI Mode) claimed a
+<code>github.copilot.advanced.requestHeaders</code> field and a working
+<code>debug.overrideProxyUrl</code> redirect for Copilot Chat specifically — checked
+against the extension's real schema and found fabricated (<code>requestHeaders</code>
+isn't a real contributed setting at all) and contradicted by the issue
+above. Worth remembering as a caution on trusting AI-search answers for
+config specifics, not a new finding about the product itself.</p>
+<p><strong>Conclusion: the field report's "works for VS Code" almost certainly meant
+the <code>copilot</code> CLI run inside a VS Code integrated terminal</strong> — the one path
+our adapter genuinely brokers — not the Copilot Chat extension, which has no
+supported or working redirect mechanism today. This closes the open
+question below about which surface was originally tested.</p>
+<p><strong>Incidental finding, not a gap:</strong> the separate <code>continue.dev</code> VS Code
+extension (unrelated to GitHub Copilot, present on this machine) <em>does</em>
+support a custom proxy endpoint and headers via its <code>config.json</code>'s
+<code>apiBase</code> / <code>requestOptions.headers</code> fields — confirmed against Continue's
+own docs. Noted only to show the gap is Copilot Chat specifically refusing
+this pattern, not that no VS Code extension can support it.</p>
+<p>The rest of this doc is about the GitHub Copilot app, since it's the one
+remaining case where "we should support this" is a coherent, open ask.</p>
+<h2>What was actually found (live install, this Mac, 2026-09-15)</h2>
+<p><code>/Applications/GitHub Copilot.app</code>, home dir <code>~/.copilot/</code> (shared with the
+CLI's own home dir name, which is itself a little misleading — see below).</p>
+<p><strong>The files our adapter writes to don't exist on this real, actively-used
+install at all:</strong></p>
+<pre><code>~/.copilot/
+├── config.json              # app-level metadata only (firstLaunchAt, appTipShown, …) — NOT settings.json
+├── data.db (+ -shm, -wal)   # SQLite, actively open — this is where real config lives
+├── session-store.db
+├── repo-metadata-cache.db
+├── servers/                 # empty
+├── ide/                     # empty
+├── installed-plugins/       # empty
+└── logs/, run/, session-state/, hooks/, media-cache/
+</code></pre>
+<p>No <code>mcp-config.json</code>. No <code>settings.json</code>. <code>config.json</code> only carries UI/app
+metadata (<code>appTipShown</code>, <code>reasoningSummariesCleanupDone</code>, …), nothing
+resembling an MCP registry or an LLM redirect.</p>
+<h3>The actual config lives in <code>data.db</code> (SQLite)</h3>
+<p>Two tables matter for the LLM leg:</p>
+<pre><code class="language-sql">CREATE TABLE model_providers (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'openai',
+    settings_json TEXT NOT NULL DEFAULT '{}',
+    account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+    -- + created_at, updated_at
+);
+
+CREATE TABLE provider_models (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider_id TEXT NOT NULL REFERENCES model_providers(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    wire_model TEXT,
+    -- + display_name, max_prompt_tokens, max_output_tokens, wire_api_override, …
+);
+</code></pre>
+<p>The live row, on this install:</p>
+<pre><code>model_providers:
+  id             = github_copilot:eb941f95-68df-4c6a-873d-5a3f4c959166
+  name           = GitHub Copilot
+  type           = github_copilot
+  settings_json  = {&quot;authKind&quot;:&quot;none&quot;,&quot;baseUrl&quot;:&quot;&quot;,&quot;headersJson&quot;:&quot;{}&quot;,&quot;wireApi&quot;:&quot;responses&quot;}
+  account_id     = eb941f95-68df-4c6a-873d-5a3f4c959166
+</code></pre>
+<p><code>baseUrl</code> is the field. It's a JSON key, inside a TEXT column, inside a
+SQLite row — not a file our <code>apply_config_delta</code>/JSON-merge machinery can
+touch. <code>provider_models</code> is empty (0 rows) on this install.</p>
+<p><strong>No MCP-server-definition table exists anywhere in the schema.</strong> The only
+MCP-adjacent tables are session-scoped event logs
+(<code>session_managed_mcp_event_display_names</code>, <code>session_mcp_event_sources</code>) —
+tracking, not configuration. This lines up with a public search finding
+(unverified against this app specifically, flagged as such) that MCP config
+for GitHub's newer surfaces has moved to a <strong>per-project</strong> file
+(<code>&lt;project&gt;/.copilot/mcp-config.json</code>), not the per-user-home file our
+adapter targets. Not confirmed against this exact app; the app's own
+worktree checkouts inspected during this investigation (under
+<code>~/work/zax/copilot-worktrees/</code>) had no such file, but those may not be
+representative of where a real MCP config would land.</p>
+<h3>Why this isn't a "wrong path" fix</h3>
+<ul>
+<li><strong>The DB is open and actively written to right now</strong> — two running
+  instances of the app on this machine, with the WAL file growing during
+  the investigation. Writing into it from outside the app risks corruption,
+  or being silently overwritten by the app's own next commit, unless done
+  with real SQLite transaction discipline (and ideally the app's own
+  cooperation — e.g. writing only while it's confirmed not to be mid-write,
+  which nothing in our current tooling attempts).</li>
+<li><strong>No existing code path fits.</strong> Every adapter in this repo assumes a
+  mergeable JSON/TOML <em>file</em> (<code>ConfigDelta</code> → <code>config_render</code> →
+  <code>apply_config_delta</code>'s file merge). None of that machinery knows how to
+  address a database row.</li>
+<li><strong>No stable, documented schema to build against.</strong> This app is new enough
+  that nothing indexed publicly describes <code>data.db</code>'s schema. Everything
+  above came from inspecting a real, live install directly — the same
+  discipline this codebase's own adapters insist on elsewhere (e.g. Devin's,
+  Grok's, and Kiro's doc comments all cite "confirmed against a live
+  install" or "UNVERIFIED" explicitly) — but it means the schema found here
+  could change without notice on the app's next update, with no changelog
+  to watch.</li>
+</ul>
+<h2>Recommended paths forward</h2>
+<ol>
+<li><strong>Don't attempt a live-DB write without explicit product sign-off.</strong> The
+   corruption/silent-overwrite risk is real and the blast radius is a
+   user-facing app's entire local state (sessions, workspaces, worktrees —
+   this DB is not a small, single-purpose config file).</li>
+<li><strong>If this surface is a real priority, treat it as new product design
+   work, not a bugfix.</strong> Two realistic directions:
+   - Build careful, transaction-safe SQLite write tooling specifically for
+     this app, with the same "narrow trust, confirm against live install,
+     never guess a schema" discipline already established elsewhere in this
+     codebase — and accept it needs re-validation on every app update until
+     GitHub documents the schema (if ever).
+   - Wait for/push for the app to expose a supported external configuration
+     surface (an env var, a CLI flag, a documented settings file, an IPC
+     endpoint) rather than reverse-engineering its private database.</li>
+<li><strong>VS Code claim — resolved, no action needed.</strong> Re-verified
+   independently (see "VS Code's built-in Copilot Chat extension" above):
+   the extension has no working redirect mechanism today, in code or in the
+   product itself. "Works for VS Code" almost certainly meant the CLI run
+   in an integrated terminal, which is expected, unremarkable, and already
+   covered by <code>copilot.rs</code>. Writing the relevant settings into
+   <code>settings.json</code> programmatically is mechanically trivial (same
+   JSON-merge pattern every other adapter here already uses) but
+   accomplishes nothing, since <code>github.copilot-chat</code> ignores the only
+   settings that look like a proxy override.</li>
+<li><strong>Microsoft 365 Copilot app</strong>: no further action recommended. Flag to
+   whoever raised the original report that it's a different product with a
+   different backend, not a coverage gap in this adapter.</li>
+</ol>
+<h2>Open questions for the team</h2>
+<ul>
+<li>Is the GitHub Copilot app actually a stated priority for LLM-traffic
+  brokering, given the live-DB risk profile above? If not, this doc is the
+  record of why it's out of scope, not a to-do.</li>
+<li>Does GitHub expose (or plan to expose) any supported external
+  configuration surface for this app? Worth checking their own repo/issue
+  tracker for the app (separate from <code>github/copilot-cli</code>) if one exists
+  publicly.</li>
+<li>~~Which exact surface was tested when "Copilot" was reported working for
+  VS Code?~~ <strong>Resolved 2026-09-15</strong> — almost certainly the CLI in an
+  integrated terminal; the Copilot Chat extension has no interception path
+  that could have been "working" in the first place.</li>
+</ul></body></html>

@@ -50,6 +50,21 @@ Not mirrored (deliberately): `ai-gateway/docs/x` (a ~5.7MB accidental shell-
 history dump, gitignored in `ai-protect` itself) and `ai-gateway/docs/jeswin.html`
 (an untracked personal file) — neither is real project content.
 
+## New (authored here, 2026-09-15)
+
+- `docs/copilot-desktop-apps-coverage-gap.md` — findings on a field report
+  that Copilot support "works for VS Code, but not for GitHub app and
+  Copilot app": disambiguates the four distinct "Copilot" surfaces in play,
+  confirms Microsoft 365 Copilot app is a different product entirely
+  (out of scope permanently), resolves the VS Code half — the built-in
+  Copilot Chat extension has no working LLM-redirect mechanism in the
+  product itself, so "works for VS Code" almost certainly meant the CLI run
+  in an integrated terminal — and documents a live-install finding that the
+  new GitHub Copilot desktop app stores its LLM-provider config in a SQLite
+  database (`~/.copilot/data.db`'s `model_providers` table), not a file our
+  existing adapter architecture can merge into — a real coverage gap, but
+  one needing new design work, not a quick fix.
+
 ## Historical (recovered from deletion, commit `7bdeb17a`)
 
 Everything else was **deleted** from `ai-protect` in commit `7bdeb17a`

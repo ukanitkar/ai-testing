@@ -52,9 +52,10 @@ share the word "Copilot," only one of which our <code>ai-gateway</code> adapter
 a regression in existing code — it's a scope question, and one of the two
 named apps turns out to need a different <em>kind</em> of solution than a config
 key we got wrong.</p>
-<p><strong>Update 2026-09-15:</strong> the VS Code Copilot Chat question (row 2 below) is
-now resolved — see its own section — leaving the GitHub Copilot app as the
-only surface still genuinely open.</p>
+<p><strong>Update 2026-09-15:</strong> the VS Code Copilot Chat question (row 2 below) was
+partially resolved, then reopened same-day on a generic env-var/CA-cert
+mechanism that needs live verification — see its own section for the current
+state. The GitHub Copilot app remains the other open surface.</p>
 <h2>The four surfaces, disambiguated</h2>
 <table>
 <thead>
@@ -87,7 +88,7 @@ only surface still genuinely open.</p>
 </tr>
 </tbody>
 </table>
-<h2>VS Code's built-in Copilot Chat extension — resolved 2026-09-15</h2>
+<h2>VS Code's built-in Copilot Chat extension — reopened 2026-09-15</h2>
 <p>Investigated as the third surface in the table above, since it's the one
 most likely to be what the original "works for VS Code" report actually
 meant.</p>
@@ -126,11 +127,113 @@ against the extension's real schema and found fabricated (<code>requestHeaders</
 isn't a real contributed setting at all) and contradicted by the issue
 above. Worth remembering as a caution on trusting AI-search answers for
 config specifics, not a new finding about the product itself.</p>
-<p><strong>Conclusion: the field report's "works for VS Code" almost certainly meant
-the <code>copilot</code> CLI run inside a VS Code integrated terminal</strong> — the one path
-our adapter genuinely brokers — not the Copilot Chat extension, which has no
-supported or working redirect mechanism today. This closes the open
-question below about which surface was originally tested.</p>
+<p><strong>Conclusion (as of the settings-only check above): the field report's
+"works for VS Code" almost certainly meant the <code>copilot</code> CLI run inside a
+VS Code integrated terminal</strong> — the one path our adapter genuinely brokers —
+not the Copilot Chat extension. This closes the open question below about
+which surface was originally tested, independent of the reopened question
+below about whether a <em>different</em> mechanism could still redirect the
+extension's own traffic.</p>
+<h3>Reopened: the generic env-var + CA-cert path is unresolved, not dead</h3>
+<p>The finding above only rules out Copilot Chat's own internal debug setting.
+It doesn't rule out the same generic mechanism our other adapters already
+rely on: <code>HTTPS_PROXY</code>/<code>HTTP_PROXY</code> env vars for redirection plus
+<code>NODE_EXTRA_CA_CERTS</code> for CA trust. Two authoritative-looking sources
+directly disagree on whether this works for VS Code Copilot Chat:</p>
+<ul>
+<li><strong>GitHub's own docs</strong> (<code>docs.github.com/en/copilot/concepts/network-settings</code>)
+  document <code>HTTPS_PROXY</code> &gt; <code>https_proxy</code> &gt; <code>HTTP_PROXY</code> &gt; <code>http_proxy</code> (in
+  that priority order) as Copilot's supported proxy mechanism, and
+  <code>NODE_EXTRA_CA_CERTS</code> as the supported CA-trust mechanism for a
+  TLS-intercepting proxy.</li>
+<li><strong>Real user reports contradict it for this extension specifically</strong>: a
+  GitHub issue states the Copilot agent ignores <code>NODE_EXTRA_CA_CERTS</code>
+  outright, corporate-proxy-with-custom-CA setups are reported broken for
+  Copilot Chat, and the practical workaround people actually use is a
+  third-party extension (<strong>Win-CA</strong>) that bridges the Windows <strong>OS
+  certificate store</strong> into VS Code's trust — broad OS-store trust, not the
+  narrow per-agent <code>NODE_EXTRA_CA_CERTS</code> trust this codebase's own design
+  deliberately favors elsewhere (see <code>ai-gateway/listener/src/certs.rs</code>'s
+  design doc).</li>
+<li>Checking the open-source <code>vscode-copilot-chat</code> extension's own
+  <code>configurationService.ts</code> directly: the only proxy-related setting it
+  defines itself is the already-dead <code>DebugOverrideProxyUrl</code>. Nothing there
+  proves or disproves whether its actual request code rides VS Code's
+  generic extension-host proxy-agent layer (which reads <code>http.proxy</code> /
+  env vars) — that would live in its networking code, not its config layer,
+  and hasn't been checked yet.</li>
+</ul>
+<p><strong>Not settled either way. Needs a live test</strong> (point <code>HTTPS_PROXY</code> at the
+gateway's listener with <code>NODE_EXTRA_CA_CERTS</code> set, launch VS Code with a
+real Copilot Chat install, check the gateway log for interception — the
+same discipline as the <code>diagnose-*.ps1</code> scripts) before this line item can
+be closed in either direction.</p>
+<h3>Alternative under consideration: fork the open-source extension</h3>
+<p>Both <code>vscode</code> (MIT, <code>github.com/microsoft/vscode</code>) and <code>vscode-copilot-chat</code>
+(MIT, <code>github.com/microsoft/vscode-copilot-chat</code>) are open source. Unlike
+every mechanism above — all of which depend on hoping the <em>vendor's
+unmodified binary</em> happens to read a setting/env var we control — a fork
+gives certainty: we own the code, so it can be made to read a config file
+we write and route through our proxy/CA by construction, no "does it honor
+this" ambiguity.</p>
+<p>That certainty comes at a materially different cost than anything else in
+this doc, worth deciding deliberately rather than building quietly:</p>
+<ul>
+<li><strong>Every existing adapter is non-invasive</strong> — a config-delta write into a
+  file the vendor's own unmodified install already reads. This would instead
+  mean <strong>replacing</strong> the vendor's installed extension with our own compiled
+  build — a first for this codebase's adapter model.</li>
+<li><strong>Distribution</strong>: the Marketplace version would need to be blocked from
+  reinstalling over ours, and our build installed as an unsigned <code>.vsix</code>
+  (VS Code supports this via <code>code --install-extension</code>, but it's a
+  different deployment path than anything else here).
+  Recurring cost, not one-time.</li>
+<li><strong>Ongoing maintenance</strong>: Copilot Chat ships frequently. A fork needs
+  rebasing onto every upstream release indefinitely, or it drifts stale and
+  loses whatever features/fixes ship upstream.</li>
+<li>
+<p><strong>Policy angle</strong>: this is a modified build of GitHub's own product,
+  silently substituted on managed endpoints, using the real user's real
+  Copilot entitlement against GitHub's real backend. Legally fine under
+  MIT, but a deliberate product decision, not a quick fix — same category
+  of decision as the GitHub Copilot app's live-DB write question above.
+<strong>Feasibility, checked against the actual source (2026-09-15):</strong></p>
+</li>
+<li>
+<p><strong><code>microsoft/vscode-copilot-chat</code> is archived</strong> (last commit <code>5863f5a</code>,
+  2026-05-20): <em>"This project has been moved into the main VS Code
+  repository... development continues at github.com/microsoft/vscode."</em>
+  Forking this specific repo means forking a dead snapshot — the real,
+  currently-shipping code now lives inside the <code>vscode</code> monorepo itself.
+  "Fork the extension" in practice means tracking <code>microsoft/vscode</code> going
+  forward, not this smaller, easier-looking repo.</p>
+</li>
+<li><strong>The request path is a single, clean choke point, not scattered.</strong>
+  Everything funnels through <code>IFetcherService.fetch()</code> →
+  <code>fetchWithFallbacks()</code> (<code>src/platform/networking/node/fetcherFallback.ts</code>)
+  into one of three <code>IFetcher</code> implementations. The most promising is
+  <code>node/nodeFetchFetcher.ts</code>, which already uses <strong>undici</strong> with
+  <code>dispatcher: agent.value</code> where <code>agent = new Lazy(() =&gt; new
+  undici.Agent({ allowH2: true }))</code> — swapping this for a <code>undici.ProxyAgent</code>
+  with a custom CA (<code>connect: { ca }</code>) is a small, targeted change at one
+  file, not a sprawling rewrite.</li>
+<li><strong>No proxy/CA/agent handling exists anywhere in this layer today</strong> — it
+  currently just inherits whatever VS Code's Electron main process already
+  patched into the global <code>fetch</code>. This is consistent with every other
+  finding in this doc: there's genuinely nothing to configure our way into,
+  because nothing here reads a proxy or CA setting at all.</li>
+<li><strong>No local config file mechanism exists anywhere in the extension</strong> — all
+  configuration goes through <code>IConfigurationService</code>, a thin wrapper over
+  <code>vscode.workspace.getConfiguration</code>. Reading a file we control would be a
+  pattern added from scratch, not an extension of something already there.</li>
+<li><strong>Build is ordinary and small</strong>: <code>esbuild</code> (<code>npm run build</code>/<code>compile</code>),
+  then <code>vsce package</code> → <code>.vsix</code>. Not a heavy toolchain problem.</li>
+</ul>
+<p>None of this changes the trade-offs above (replacing a vendor binary,
+distribution/update conflicts, ongoing tracking of a much larger repo than
+first assumed, the policy question) — it just confirms the <em>code-level</em> part
+is small and precisely located, so the decision is really about the
+distribution/maintenance/policy cost, not implementation difficulty.</p>
 <p><strong>Incidental finding, not a gap:</strong> the separate <code>continue.dev</code> VS Code
 extension (unrelated to GitHub Copilot, present on this machine) <em>does</em>
 support a custom proxy endpoint and headers via its <code>config.json</code>'s
@@ -236,16 +339,24 @@ representative of where a real MCP config would land.</p>
    - Wait for/push for the app to expose a supported external configuration
      surface (an env var, a CLI flag, a documented settings file, an IPC
      endpoint) rather than reverse-engineering its private database.</li>
-<li><strong>VS Code claim — resolved, no action needed.</strong> Re-verified
-   independently (see "VS Code's built-in Copilot Chat extension" above):
-   the extension has no working redirect mechanism today, in code or in the
-   product itself. "Works for VS Code" almost certainly meant the CLI run
-   in an integrated terminal, which is expected, unremarkable, and already
-   covered by <code>copilot.rs</code>. Writing the relevant settings into
-   <code>settings.json</code> programmatically is mechanically trivial (same
-   JSON-merge pattern every other adapter here already uses) but
-   accomplishes nothing, since <code>github.copilot-chat</code> ignores the only
-   settings that look like a proxy override.</li>
+<li><strong>VS Code claim — the "which surface was tested" question is resolved
+   (almost certainly the CLI in a terminal), but the mechanism question is
+   reopened, not closed.</strong> Copilot Chat's own internal debug settings are
+   confirmed dead, and writing them via <code>settings.json</code> programmatically
+   (mechanically trivial, same JSON-merge pattern used elsewhere here)
+   would accomplish nothing. But the generic <code>HTTPS_PROXY</code>/<code>HTTP_PROXY</code> +
+   <code>NODE_EXTRA_CA_CERTS</code> mechanism is unresolved — GitHub's own docs say it
+   works, real user reports say it doesn't, and it needs a live test (see
+   "Reopened" above) rather than a decision from secondary sources either
+   way.</li>
+<li><strong>If a live test confirms the extension can't be redirected, decide
+   deliberately whether to fork <code>vscode-copilot-chat</code> (MIT, open source)</strong>
+   rather than treat "no supported hook" as the end of the line — see
+   "Alternative under consideration: fork the open-source extension" above.
+   This is a heavier, different-shaped commitment than every other item in
+   this doc (replacing a vendor binary instead of writing a config delta
+   into one), so it needs the same explicit sign-off as the live-DB write
+   question below, not a default yes.</li>
 <li><strong>Microsoft 365 Copilot app</strong>: no further action recommended. Flag to
    whoever raised the original report that it's a different product with a
    different backend, not a coverage gap in this adapter.</li>

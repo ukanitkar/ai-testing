@@ -453,7 +453,78 @@ adapter targets. Not confirmed against this exact app; the app's own
 worktree checkouts inspected during this investigation (under
 <code>~/work/zax/copilot-worktrees/</code>) had no such file, but those may not be
 representative of where a real MCP config would land.</p>
-<h3>Why this isn't a "wrong path" fix</h3>
+<h3>Update 2026-09-16: <code>model_providers</code> is the BYOK feature, not an obscure internal field</h3>
+<p>The original finding above ("<code>baseUrl</code> is the field... not a file our
+machinery can touch") turns out to be more significant than it looked at
+the time. Re-verified directly against the app's compiled binary
+(<code>strings</code> on <code>/Applications/GitHub Copilot.app/Contents/MacOS/github</code>,
+v1.1.21 — not guessed), following up on a GitHub changelog claiming the
+app now supports BYOK ("Settings → Model Providers", 2026-06-23).</p>
+<p>⚠️ <strong>Evidence class, stated plainly</strong>: everything below came from <code>strings</code>
+on a compiled binary, not from a formally issued GitHub document or public
+source code — this app isn't open source, unlike <code>vscode-copilot-chat</code>
+elsewhere in this doc. The embedded SQL text is real (it's the literal
+shipped code, not a paraphrase or inference), so the <em>schema itself</em> can be
+trusted as accurate. But nothing here is GitHub-published or
+GitHub-supported: no commitment it stays stable across an update, and the
+<code>docs/byok.md</code> reference below is a comment pointing at an internal doc we
+don't have, not something we read ourselves.</p>
+<ul>
+<li><strong>The binary's embedded SQL migration history is readable, and it names
+  the design.</strong> A code comment reads: <em>"BYOK (Bring Your Own Key) tables.
+  Stores user-configured model providers and the models they expose to the
+  app... See plan in docs/byok.md... for the full design."</em> This is the
+  real, first-party, named feature — not a coincidental field we happened
+  to find.</li>
+<li><strong><code>model_providers</code> is literally the same table as <code>byok_providers</code>.</strong> A
+  later migration in the same embedded history runs <code>ALTER TABLE
+  byok_providers RENAME TO model_providers</code>. The <code>baseUrl</code> field found in
+  the original investigation <em>is</em> the BYOK storage, post-rename — we had
+  already found the right field, without knowing at the time it was a
+  named, designed feature rather than an internal implementation detail.</li>
+<li><strong>The full pre-rename schema is recoverable from the binary</strong>, giving a
+  real, confirmed shape to build against instead of a guess:
+  <code>sql
+  CREATE TABLE byok_providers (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN
+          ('openai','azure','anthropic','ollama','foundry_local','custom')),
+      base_url TEXT NOT NULL,
+      wire_api TEXT NOT NULL DEFAULT 'completions'
+          CHECK (wire_api IN ('completions','responses')),
+      auth_kind TEXT NOT NULL DEFAULT 'api_key'
+          CHECK (auth_kind IN ('api_key','bearer_token','none')),
+      headers_json TEXT NOT NULL DEFAULT '{}',
+      -- + created_at, updated_at
+  );
+  CREATE TABLE byok_models (
+      id TEXT PRIMARY KEY NOT NULL,
+      provider_id TEXT NOT NULL REFERENCES byok_providers(id) ON DELETE CASCADE,
+      model_id TEXT NOT NULL,
+      -- + wire_model, display_name, max_prompt_tokens, max_output_tokens, …
+  );</code>
+  <code>type='custom'</code> with <code>auth_kind='none'</code> is exactly the shape a local,
+  no-auth endpoint needs — a session then selects it via a
+  <code>sessions.model = 'byok:&lt;provider_id&gt;:&lt;model_id&gt;'</code> string, confirmed from
+  the same embedded SQL. Secrets are kept out of the DB entirely, in the OS
+  keychain under <code>byok:&lt;provider_id&gt;:apiKey</code> / <code>...:bearerToken</code>.</li>
+<li><strong>Two distinct BYOK mechanisms exist — only one is reachable from a local
+  proxy.</strong> GitHub's enterprise admin console has its own, separate
+  "Configure custom models" flow (AI controls → Copilot), confirmed
+  <strong>entirely server-side</strong>: the admin's key and endpoint are held by
+  GitHub's platform and pushed down to clients through it. That one is
+  useless for us — GitHub's servers can't reach a <code>127.0.0.1</code> loopback
+  listener. The relevant one is the <strong>per-device</strong> <code>byok_providers</code> table
+  above, confirmed to work "without a signed-in GitHub account" and be
+  "global per app install" — evaluated locally, by the app itself.</li>
+<li><strong>No file, CLI, or programmatic path is documented for the per-device
+  version</strong> — confirmed against GitHub's own how-to doc, GUI-only
+  (<code>Settings → Model providers → Add provider</code>). Automating it without user
+  interaction still means either a direct DB write or driving the actual
+  GUI once per device; nothing changed about <em>that</em> part of the risk below.</li>
+</ul>
+<h3>Why a direct write still isn't a "wrong path" fix</h3>
 <ul>
 <li><strong>The DB is open and actively written to right now</strong> — two running
   instances of the app on this machine, with the WAL file growing during
@@ -466,31 +537,44 @@ representative of where a real MCP config would land.</p>
   mergeable JSON/TOML <em>file</em> (<code>ConfigDelta</code> → <code>config_render</code> →
   <code>apply_config_delta</code>'s file merge). None of that machinery knows how to
   address a database row.</li>
-<li><strong>No stable, documented schema to build against.</strong> This app is new enough
-  that nothing indexed publicly describes <code>data.db</code>'s schema. Everything
-  above came from inspecting a real, live install directly — the same
-  discipline this codebase's own adapters insist on elsewhere (e.g. Devin's,
-  Grok's, and Kiro's doc comments all cite "confirmed against a live
-  install" or "UNVERIFIED" explicitly) — but it means the schema found here
-  could change without notice on the app's next update, with no changelog
-  to watch.</li>
+<li><strong>The schema is now confirmed from the shipped binary itself, not
+  guessed — but that is not the same as GitHub-published or
+  GitHub-supported.</strong> The update above replaces "nothing indexed publicly
+  describes this schema" with a real, extracted one, which meaningfully
+  lowers the <em>guessing</em> risk named in the original finding. It does not
+  remove the <em>stability</em> risk: this came from <code>strings</code> on a private
+  binary, not a formal doc or open-source repo, so nothing commits GitHub
+  to this shape staying the same release to release, and writing outside
+  the app's own code still bypasses whatever validation/side effects the
+  real "Add provider" flow performs.</li>
 </ul>
 <h2>Recommended paths forward</h2>
 <ol>
-<li><strong>Don't attempt a live-DB write without explicit product sign-off.</strong> The
-   corruption/silent-overwrite risk is real and the blast radius is a
+<li><strong>Don't attempt a live-DB write without explicit product sign-off, admin
+   privilege notwithstanding.</strong> Root/LocalSystem removes the permissions
+   barrier, not the concurrency hazard — the write still races the app's
+   own live process for the same file, can be silently overwritten by its
+   next flush, and skips whatever validation/keychain/cache-invalidation
+   the real "Add provider" flow performs. The blast radius is a
    user-facing app's entire local state (sessions, workspaces, worktrees —
    this DB is not a small, single-purpose config file).</li>
-<li><strong>If this surface is a real priority, treat it as new product design
-   work, not a bugfix.</strong> Two realistic directions:
-   - Build careful, transaction-safe SQLite write tooling specifically for
-     this app, with the same "narrow trust, confirm against live install,
-     never guess a schema" discipline already established elsewhere in this
-     codebase — and accept it needs re-validation on every app update until
-     GitHub documents the schema (if ever).
-   - Wait for/push for the app to expose a supported external configuration
-     surface (an env var, a CLI flag, a documented settings file, an IPC
-     endpoint) rather than reverse-engineering its private database.</li>
+<li><strong>The schema risk is now real and confirmed rather than unknown, which
+   changes the shape of "new product design work," not its necessity.</strong>
+   <code>byok_providers</code>/<code>model_providers</code> (same table, renamed) is a genuine,
+   named, first-party feature with a confirmed shape — <code>type='custom'</code>,
+   <code>auth_kind='none'</code>, <code>base_url</code> pointed at our local listener. Two
+   realistic directions, same as before but on firmer ground:
+   - Build careful, transaction-safe SQLite write tooling against this now-
+     confirmed schema, with the same "narrow trust, confirm against live
+     install, never guess a schema" discipline established elsewhere in
+     this codebase — and still accept re-validation on every app update,
+     since GitHub doesn't publish this schema and nothing commits it to
+     staying stable.
+   - Push for a supported, non-GUI way to provision the per-device BYOK
+     provider (GitHub's own docs confirm none exists today — Settings UI
+     only) rather than reverse-engineering the write. The enterprise
+     "Configure custom models" flow is not a substitute — it's server-side
+     and can't reach a <code>127.0.0.1</code> listener.</li>
 <li><strong>VS Code claim — the "which surface was tested" question is resolved
    (almost certainly the CLI in a terminal), but the mechanism question is
    reopened, not closed.</strong> Copilot Chat's own internal debug settings are

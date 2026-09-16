@@ -43,6 +43,7 @@ hr { border: none; border-top: 1px solid #d8d2c2; margin: 28px 0; }
 ul, ol { padding-left: 24px; }
 li { margin: 4px 0; }
 strong { color: #16352c; }
+del { color: #8a8474; }
 </style></head><body><h1>"Copilot doesn't work" outside VS Code — findings</h1>
 <p>Written 2026-09-15, in response to a field report that "the Copilot work we
 have done works for VS Code, but not for GitHub app and Copilot app." Short
@@ -191,23 +192,21 @@ this doc, worth deciding deliberately rather than building quietly:</p>
 <li><strong>Ongoing maintenance</strong>: Copilot Chat ships frequently. A fork needs
   rebasing onto every upstream release indefinitely, or it drifts stale and
   loses whatever features/fixes ship upstream.</li>
-<li>
-<p><strong>Policy angle</strong>: this is a modified build of GitHub's own product,
+<li><strong>Policy angle</strong>: this is a modified build of GitHub's own product,
   silently substituted on managed endpoints, using the real user's real
   Copilot entitlement against GitHub's real backend. Legally fine under
   MIT, but a deliberate product decision, not a quick fix — same category
-  of decision as the GitHub Copilot app's live-DB write question above.
-<strong>Feasibility, checked against the actual source (2026-09-15):</strong></p>
-</li>
-<li>
-<p><strong><code>microsoft/vscode-copilot-chat</code> is archived</strong> (last commit <code>5863f5a</code>,
+  of decision as the GitHub Copilot app's live-DB write question above.</li>
+</ul>
+<p><strong>Feasibility, checked against the actual source (2026-09-15):</strong></p>
+<ul>
+<li><strong><code>microsoft/vscode-copilot-chat</code> is archived</strong> (last commit <code>5863f5a</code>,
   2026-05-20): <em>"This project has been moved into the main VS Code
   repository... development continues at github.com/microsoft/vscode."</em>
   Forking this specific repo means forking a dead snapshot — the real,
   currently-shipping code now lives inside the <code>vscode</code> monorepo itself.
   "Fork the extension" in practice means tracking <code>microsoft/vscode</code> going
-  forward, not this smaller, easier-looking repo.</p>
-</li>
+  forward, not this smaller, easier-looking repo.</li>
 <li><strong>The request path is a single, clean choke point, not scattered.</strong>
   Everything funnels through <code>IFetcherService.fetch()</code> →
   <code>fetchWithFallbacks()</code> (<code>src/platform/networking/node/fetcherFallback.ts</code>)
@@ -234,6 +233,159 @@ distribution/update conflicts, ongoing tracking of a much larger repo than
 first assumed, the policy question) — it just confirms the <em>code-level</em> part
 is small and precisely located, so the decision is really about the
 distribution/maintenance/policy cost, not implementation difficulty.</p>
+<h2>Alternative goal: disable/hide Copilot Chat entirely, instead of intercepting it</h2>
+<p>Everything above is about <strong>intercepting</strong> Copilot Chat's traffic. If the
+actual goal is closer to <strong>blocking</strong> it — same category as a policy
+"block suspicious skill" rule elsewhere in this codebase — VS Code has a
+real, documented, working answer today, unlike interception:</p>
+<p><strong>The master switch</strong>, confirmed against VS Code's own docs
+(<code>code.visualstudio.com/docs/setup/copilot</code>) plus an independent source, not
+guessed:</p>
+<pre><code class="language-json">{
+    &quot;chat.disableAIFeatures&quot;: true
+}
+</code></pre>
+<p>This is a VS Code <strong>core</strong> setting (not a Copilot-extension-internal one).
+Official description: <em>"Disable and hide built-in AI features provided by
+GitHub Copilot, including chat and inline suggestions."</em> Confirmed to both
+disable the functionality AND hide the UI (chat icon/panel gone), at user or
+workspace scope in the same <code>settings.json</code> every other setting discussed in
+this doc lives in. Writing it programmatically is the exact same JSON-merge
+pattern this codebase already uses for every other agent's config file —
+mechanically trivial, and unlike the interception question, it actually
+works today.</p>
+<p><strong>More granular pieces, for partial control instead of the master switch:</strong></p>
+<ul>
+<li><code>"github.copilot.enable": {"*": false}</code> — inline completions only,
+  confirmed real, doesn't touch chat.</li>
+<li><code>"chat.commandCenter.enabled": false</code> — hides only the Chat icon in the
+  title bar; doesn't disable the underlying feature or other entry points.</li>
+<li>No confirmed dedicated "chat only, keep completions" flag was found —
+  <code>chat.disableAIFeatures</code> is all-or-nothing by design.</li>
+</ul>
+<p><strong>The caveat: a <code>settings.json</code> write is user-reversible.</strong> A user who knows
+the key exists can delete it and reload. For something a user can't casually
+undo, there's a real VS Code enterprise policy that fits:</p>
+<p><strong><code>AllowedExtensions</code></strong> (<code>extensions.allowed</code>) — registry-backed at
+<code>HKLM\SOFTWARE\Policies\Microsoft\VSCode</code> on Windows, machine or user scope,
+confirmed since VS Code 1.96. Confirmed behavior: <em>"If you block an
+extension or version that is already installed, the extension is
+disabled."</em> Omitting <code>github.copilot-chat</code> (and <code>github.copilot</code>) from the
+allowlist disables them even if already installed, greys out reinstall in
+the Extensions UI, and can't be undone from inside VS Code. Since the daemon
+already runs elevated on Windows, it could write this registry key directly
+— the same "one admin-scoped write, machine-wide" mechanism discussed for
+the proxy idea above, just applied to blocking instead of intercepting. No
+dedicated Group-Policy/registry backing was found specifically for
+<code>chat.disableAIFeatures</code> itself (it appears to be settings.json-only today),
+so <code>AllowedExtensions</code> is the stronger lever if durability against a
+user undoing it matters.</p>
+<h2>Alternative: replace Copilot with Continue and/or the Claude Code extension</h2>
+<p>Rather than intercepting or blocking Copilot Chat, a different question: can
+another already-installed VS Code extension cover what Copilot provides,
+end to end — pointing at our local proxy, understanding/summarizing code,
+generating and pushing changes, and integrating with inline autocomplete?
+Checked against the two extensions actually installed on this Mac
+(<code>continue.continue-2.0.0</code>, <code>anthropic.claude-code-2.1.273</code>), not
+hypothetically.</p>
+<table>
+<thead>
+<tr>
+<th>Requirement</th>
+<th>Continue</th>
+<th>Claude Code (extension)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1. Point to local proxy</strong></td>
+<td>Confirmed earlier: <code>apiBase</code> + <code>requestOptions.headers</code> in <code>config.yaml</code> is real and documented.</td>
+<td><strong>Already proven, not hypothetical</strong> — <code>"claude"</code> is in our own <code>ENABLED_AGENTS</code> and its CLI is a shipped, working, brokered agent today. Verified further below: the extension itself is proxy-aware in its own bundled code, not just inheriting this by luck.</td>
+</tr>
+<tr>
+<td><strong>2. Study code / summarize</strong></td>
+<td>Yes — <code>@codebase</code>/<code>@file</code>/<code>@folder</code> context providers, standard chat feature.</td>
+<td>Yes — core to what an agentic CLI does. Neither is in doubt.</td>
+</tr>
+<tr>
+<td><strong>3. Generate code, commit, push</strong></td>
+<td>Real Agent mode with <code>@terminal</code> context and MCP tool use; Continue also ships a separate CLI (<code>cn</code>) for its heaviest autonomous background workflows (PR reviews, migrations), suggesting in-IDE Agent mode isn't where it puts the most mature autonomous git work yet.</td>
+<td>This is the extension's actual design purpose — Bash tool access, multi-file changes, running commands — and the more proven, battle-tested tool for exactly this.</td>
+</tr>
+<tr>
+<td><strong>4. Integrates with autocomplete</strong></td>
+<td>Yes, first-class: a model can carry the <code>autocomplete</code> role in <code>config.yaml</code>, typically a separate smaller/local model from the chat model — the closest like-for-like replacement for Copilot's inline suggestions.</td>
+<td><strong>No</strong> — see correction below. Its interaction model is a chat panel plus a review/accept-reject diff workflow, not keystroke-level autocomplete.</td>
+</tr>
+</tbody>
+</table>
+<h3>Verified against the extension's actual bundled code, not guessed</h3>
+<p>Checked <code>~/.vscode/extensions/anthropic.claude-code-2.1.273-darwin-arm64/extension.js</code>
+directly (static analysis of the real shipped bundle):</p>
+<ul>
+<li><strong>Proxy-awareness is real and structural, not assumed.</strong> The bundle
+  contains <code>HTTPS_PROXY</code>, <code>HTTP_PROXY</code>, <code>NODE_EXTRA_CA_CERTS</code>, and
+  <code>ANTHROPIC_BASE_URL</code> as literal strings, sitting in the same table as
+  unmistakably-CLI-internal names (<code>CLAUDE_STREAM_IDLE_TIMEOUT_MS</code>,
+  <code>MAX_THINKING_TOKENS</code>, <code>MAX_MCP_OUTPUT_TOKENS</code>) — the extension bundles
+  the same core engine as the CLI, not a separate reimplementation.
+  <code>child_process</code>/<code>spawn(</code>/<code>execFile(</code> are all present too.</li>
+<li><strong>One unambiguous, decisive line</strong>: <code>vscode.workspace.getConfiguration
+  ("http").get("proxy")</code>, used to set a <code>behindProxy</code> flag. The extension
+  <strong>actively reads VS Code's own core <code>http.proxy</code> setting</strong> — the exact
+  thing Copilot Chat was confirmed <em>not</em> to do anywhere in its config layer
+  (see the reopened section above). This is a real, structural difference
+  between the two extensions, not a hope that one happens to inherit
+  something.</li>
+<li><strong>Correction, made against this same evidence</strong>: an earlier pass in this
+  investigation (secondary/web-search sourced, not checked against the
+  real bundle at the time) claimed the extension registers its own
+  ghost-text inline-completion provider. Checked directly — <strong>wrong</strong>.
+  No <code>registerInlineCompletionItemProvider</code> / <code>InlineCompletionItemProvider</code>
+  string exists anywhere in the bundle, and <code>package.json</code>'s real command
+  list (<code>acceptProposedDiff</code> / <code>rejectProposedDiff</code>) confirms the actual
+  interaction model is a review/accept-reject diff workflow, not
+  keystroke-level autocomplete. Same failure mode as the Google AI Mode
+  doc earlier in this write-up, just from a web search this time instead
+  of AI Mode — corrected the same way, by checking the real artifact
+  rather than trusting the secondary source.</li>
+</ul>
+<p><strong>Net read</strong>: neither extension alone is a clean single-swap replacement
+for everything Copilot Chat plus Copilot's inline suggestions do. Continue
+is the closer single-extension fit (proxy, autocomplete, and agent mode are
+all first-class and confirmed); Claude Code is the stronger fit specifically
+for interception and heavy agentic work, since it's already proven in this
+product rather than merely documented, but it does not touch autocomplete
+at all. A realistic setup likely pairs them — Continue for the autocomplete
+role Copilot currently owns, Claude Code (already brokered) for the deep
+agentic work — rather than picking a single replacement.</p>
+<h3>Forward-looking idea: wiring Continue as a real, brokered agent</h3>
+<p>The port our gateway's listener binds to is chosen dynamically at runtime
+(<code>ports::candidates()</code>'s retry list) and threaded through to each agent's
+config at render time — every existing <code>Llm::</code> shape already assumes this.
+So "configure Continue to use the local proxy" is not a static value to
+hand-type into <code>~/.continue/config.yaml</code>; it means making Continue a real
+target of that same pipeline. Recorded here as a next step, not built:</p>
+<ol>
+<li><strong>A new <code>continue.rs</code> agent adapter</strong> (parallel to <code>copilot.rs</code> /
+   <code>devin.rs</code>) — an <code>AgentSpec</code> with <code>install_dirs: &amp;[".continue"]</code>,
+   targeting <code>config.yaml</code>.</li>
+<li><strong>A new <code>Llm::</code> render shape.</strong> Every existing shape (<code>Env</code>,
+   <code>ProxyPath</code>) writes a scalar at a fixed nested key. Continue needs a
+   model entry <em>appended/upserted into a <code>models</code> array by name</em>
+   (<code>{name, apiBase, roles}</code>) — a different write pattern than anything
+   <code>config_render.rs</code> does today.</li>
+<li><strong>YAML file support may not exist yet.</strong> Everything seen in
+   <code>apply_config_delta</code>/<code>config_render</code> so far has been JSON/TOML-oriented
+   (<code>.vscode/mcp.json</code>'s JSONC comment-preservation was already flagged as
+   a follow-up elsewhere). <code>config.yaml</code> being YAML, not JSON, may need the
+   file-merge machinery itself extended — needs confirming, not assumed.</li>
+<li><strong><code>BaseUrl</code>-style semantics fit better than <code>ForwardProxy</code>.</strong> Continue's
+   <code>apiBase</code> redirects straight to a local URL with no CA/CONNECT-tunnel
+   involved, matching the intent of <code>Llm::BaseUrl</code> far more than the
+   <code>ForwardProxy</code> shape Devin/Copilot CLI use — but the array-upsert
+   mechanic above is new regardless of which routing variant it hangs off.</li>
+</ol>
 <p><strong>Incidental finding, not a gap:</strong> the separate <code>continue.dev</code> VS Code
 extension (unrelated to GitHub Copilot, present on this machine) <em>does</em>
 support a custom proxy endpoint and headers via its <code>config.json</code>'s
@@ -357,6 +509,12 @@ representative of where a real MCP config would land.</p>
    this doc (replacing a vendor binary instead of writing a config delta
    into one), so it needs the same explicit sign-off as the live-DB write
    question below, not a default yes.</li>
+<li><strong>If the actual goal is blocking rather than intercepting, prefer
+   <code>chat.disableAIFeatures: true</code></strong> — a real, working, documented VS Code
+   core setting today, unlike interception. Use <code>AllowedExtensions</code>
+   (registry-backed) instead when the block needs to survive a user
+   undoing it. See "Alternative goal: disable/hide Copilot Chat entirely"
+   above.</li>
 <li><strong>Microsoft 365 Copilot app</strong>: no further action recommended. Flag to
    whoever raised the original report that it's a different product with a
    different backend, not a coverage gap in this adapter.</li>

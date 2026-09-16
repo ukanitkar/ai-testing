@@ -280,6 +280,116 @@ dedicated Group-Policy/registry backing was found specifically for
 <code>chat.disableAIFeatures</code> itself (it appears to be settings.json-only today),
 so <code>AllowedExtensions</code> is the stronger lever if durability against a
 user undoing it matters.</p>
+<h3>Delivering <code>AllowedExtensions</code> machine-wide, verified per platform (2026-09-16)</h3>
+<p>The value format itself, checked against VS Code's actual TypeScript source
+(not another docs summary): each entry is <code>true</code>/<code>false</code>, the string
+<code>'stable'</code>, or an array of version-pattern strings; keys can be a bare
+publisher id (<code>"microsoft"</code>, wildcards that publisher) or a full
+<code>publisher.extension-id</code>. So a real allowlist that blocks Copilot but keeps
+everything else already installed on a given machine looks like:</p>
+<pre><code class="language-json">{&quot;continue.continue&quot;:true,&quot;anthropic.claude-code&quot;:true,&quot;vscodevim.vim&quot;:true}
+</code></pre>
+<p><strong>It's a strict allowlist, not a denylist</strong> — anything omitted is blocked or
+disabled, installed or not. There is no way to say "block only Copilot."</p>
+<p><strong>Two real reliability caveats, found while verifying this, not just a docs
+read:</strong>
+- <a href="https://github.com/microsoft/vscode/issues/242895">microsoft/vscode#242895</a>:
+  the value is capped at <strong>1024 characters</strong> (at least via Windows
+  <code>REG_SZ</code>), and a VS Code maintainer confirmed it directly: <em>"1024 is way
+  too short for an allow list, we can't implement that policy."</em> A longer
+  JSON allowlist can silently get ignored, no error.
+- <a href="https://github.com/microsoft/vscode/issues/240834">microsoft/vscode#240834</a>:
+  an unresolved report that the policy didn't block installation at all in
+  one setup — inconclusive (their config used <code>HKEY_CURRENT_USER</code>, possibly
+  a misconfiguration), but open and unexplained.</p>
+<p><strong>Windows — GPO owns this registry path; Intune's native path is blocked by
+design.</strong> <code>AllowedExtensions</code> lands at
+<code>HKLM\SOFTWARE\Policies\Microsoft\VSCode\AllowedExtensions</code>, the namespace
+traditional Group Policy (Active Directory, ADMX-templated, no enrollment
+needed — inherent to domain join) has always owned. Cloud-only <strong>Intune's
+Settings Catalog/ADMX ingestion deliberately refuses to write anywhere under
+<code>Software\Policies\Microsoft\*</code></strong>, specifically to avoid two management
+systems silently fighting over the same key in a hybrid AD+Intune
+environment — so pushing this policy the normal Intune-console way does
+<strong>nothing</strong>, no error. The real-world fix
+(<a href="https://github.com/EternalR00ted/intune-vscode-extension-policy">EternalR00ted/intune-vscode-extension-policy</a>)
+is an Intune <em>Remediation</em>: a SYSTEM-context PowerShell script pair that
+writes the registry key directly, sidestepping Intune's own restriction —
+functionally the same move our own daemon would make.</p>
+<p><strong>Can ai-protect (elevated) write this itself? Yes on Windows, confirmed;
+genuinely unverified on macOS — don't treat them as equivalent.</strong>
+- <strong>Windows</strong>: yes. LocalSystem has unrestricted HKLM write access, no OS
+  barrier, and the Intune Remediation workaround above is existing,
+  real-world proof a SYSTEM-context process writing this exact key works.
+  Same privilege class and mechanics as every other config write this
+  codebase already does.
+- <strong>macOS</strong>: delivery is a different mechanism entirely — an Apple
+  Configuration Profile (<code>.mobileconfig</code>), not a plain file. Checked the
+  real template shipped inside this Mac's own VS Code install
+  (<code>/Applications/Visual Studio Code.app/Contents/Resources/app/policies/com.microsoft.VSCode.mobileconfig</code>,
+  v1.131.0) directly rather than trusting the docs' stale filename
+  (<code>vscode-sample.mobileconfig</code> doesn't exist; the real file is
+  <code>com.microsoft.VSCode.mobileconfig</code>). Findings from reading it:
+  - <strong>No blanket "disable AI" policy exists in the real schema</strong> — only
+    granular keys (<code>ChatAgentMode</code>, <code>ChatPluginsEnabled</code>,
+    <code>Claude3PIntegration</code>, <code>Codex3PIntegration</code>, <code>CopilotNextEditSuggestions</code>,
+    <code>CopilotReviewAgent</code>, <code>CopilotSessionSync</code>, <code>ChatHooks</code>, <code>ChatMCP</code>, …).
+    Confirms <code>chat.disableAIFeatures</code> has no policy equivalent —
+    <code>AllowedExtensions</code> (present, empty string by default) remains the only
+    real machine-wide lever.
+  - <strong>No <code>PayloadScope</code> key is set in the shipped template at all.</strong> Sources
+    disagree on what an <em>omitted</em> scope defaults to, so don't rely on it —
+    add <code>&lt;key&gt;PayloadScope&lt;/key&gt;&lt;string&gt;System&lt;/string&gt;</code> explicitly at the
+    outer <code>dict</code> to force a device-wide (all-users) profile rather than a
+    per-user one.
+  - <strong>The <code>profiles</code> CLI can no longer install profiles at all</strong>, confirmed
+    via <code>man profiles</code> on this machine: <em>"Starting with macOS 11.0 (profiles
+    tool 8.0 or later), this tool cannot be used to install configuration
+    profiles. You should add your profiles using the System Settings
+    Profiles preference pane."</em> So installation is either a human
+    double-click + admin auth in System Settings, or a real MDM push
+    (Jamf/Intune-for-Mac/Workspace ONE) — <strong>not</strong> something our root daemon
+    can script locally the way it writes every other config file in this
+    doc.</p>
+<p><strong>Current state on this laptop, verified three independent ways</strong>: no
+<code>AllowedExtensions</code> policy, and no VS Code policy of any kind, is configured
+here at all — not "set to empty," genuinely absent. No
+<code>com.microsoft.VSCode.plist</code> exists under <code>/Library/Managed Preferences/</code>
+(machine) or <code>~/Library/Managed Preferences/</code> (user); no cached reference to
+it anywhere in VS Code's own storage; <code>defaults read com.microsoft.VSCode
+AllowedExtensions</code> returns <em>"The domain/default pair... does not exist,"</em>
+not an empty value. This machine is genuinely MDM-enrolled (AirWatch/
+Workspace ONE — real <code>com.airwatch.*</code> and <code>com.zscaler.aiprotect.plist</code>
+managed-preference files are present) but that enrollment simply has never
+targeted VS Code.</p>
+<p><strong>The two open questions from the SIP/cache discussion above are now
+substantially resolved</strong>, by reading <code>microsoft/vscode-policy-watcher</code>'s
+actual macOS source (<code>src/macos/PreferencesPolicy.hh</code>, <code>PolicyWatcher.cc</code>)
+rather than guessing:
+- <strong>No signature check, no separate validation API.</strong> It calls the
+  standard <code>CFPreferencesAppValueIsForced(key, appID)</code> / <code>CFPreferencesCopyAppValue</code>
+  — the exact same Apple API any macOS app uses for managed preferences.
+  Nothing VS Code-specific stands between a plain plist and being read as
+  policy.
+- <strong>It watches <code>/Library/Managed Preferences/</code> directly via FSEvents</strong> —
+  <code>FSEventStreamCreate</code> on that literal path. Combined with Apple's own
+  documented <code>CFPreferencesCopyAppValue</code> search-path behavior (which
+  independent sources confirm treats this directory as real, authoritative
+  storage for MDM-delivered preferences, not a projected cache), a
+  correctly-formatted file dropped there would very likely be picked up.
+- <strong>Still open</strong>: whether a live MDM check-in reconciles or sweeps away a
+  <em>foreign</em> file it doesn't recognize as coming from a profile it pushed.
+  No documentation found either way; no profile daemon was running on this
+  machine at the time of checking to test it live. Architecturally the safe
+  assumption is that an MDM only reconciles what it itself pushed — but that
+  is an assumption, not a verified result.</p>
+<p><strong>A concrete test recipe exists to close the remaining gap</strong> — written for a
+disposable VM (snapshot first), not this real, managed laptop: write the
+plist directly, verify <code>defaults read</code> and VS Code's own startup log
+(<code>grep -i policy ~/Library/Application\ Support/Code/logs/*/main.log</code>) pick
+it up, then (optional, needs a sandbox MDM tenant) force a check-in and see
+whether the manual file survives or gets reconciled against a real
+MDM-pushed payload. Not yet run; results pending.</p>
 <h2>Alternative: replace Copilot with Continue and/or the Claude Code extension</h2>
 <p>Rather than intercepting or blocking Copilot Chat, a different question: can
 another already-installed VS Code extension cover what Copilot provides,

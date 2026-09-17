@@ -164,11 +164,44 @@ directly disagree on whether this works for VS Code Copilot Chat:</p>
   env vars) — that would live in its networking code, not its config layer,
   and hasn't been checked yet.</li>
 </ul>
-<p><strong>Not settled either way. Needs a live test</strong> (point <code>HTTPS_PROXY</code> at the
-gateway's listener with <code>NODE_EXTRA_CA_CERTS</code> set, launch VS Code with a
-real Copilot Chat install, check the gateway log for interception — the
-same discipline as the <code>diagnose-*.ps1</code> scripts) before this line item can
-be closed in either direction.</p>
+<p><strong>Update 2026-09-17 — upgraded from "disputed" to "very likely not
+implemented," per Microsoft's own current design docs.</strong> The checks above
+were against the <em>archived</em> <code>vscode-copilot-chat</code> snapshot; the real,
+current code moved into <code>microsoft/vscode</code> itself
+(<code>src/vs/platform/agentHost/</code>, <code>extensions/copilot/</code>). Checking there
+directly:</p>
+<ul>
+<li><code>agentHost/node/copilot/copilotAgent.ts</code> has a real <code>COPILOT_PROXY_ENV_KEYS</code>
+  list and an <code>invokeWithTemporaryProxyEnvironment()</code> helper — but it has
+  <strong>exactly one call site in the whole repo</strong>, wrapping only the <em>managed
+  settings</em> fetch (an enterprise's admin-configured Copilot policy —
+  <code>getManagedSettings()</code>, the client-side pull for the "Configure custom
+  models" flow above). Not chat/completion traffic.</li>
+<li><code>agentHost/node/networkDiagnosticsService.ts</code>'s <code>PROXY_ENV_KEYS</code> (plus a
+  <code>COPILOT_PROXY_KERBEROS_SPN</code> entry) is diagnostics-only — it reports what
+  env vars are set, it doesn't configure anything.</li>
+<li>The decisive piece — <code>agentHost/node/claude/CONTEXT.md</code>, a real Microsoft
+  design doc, filed under "Deferred for later phases": <em>"HTTP proxy support
+  (<code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code> env vars, VS Code's <code>http.proxy</code> setting, PAC
+  files, proxy auth). The Phase 2 proxy talks to CAPI through
+  <code>ICopilotApiService</code>, so any outbound proxying is inherited from whatever
+  HTTP client that service uses. If the agent host needs to honor user
+  proxy configuration we'll need an explicit agent/dispatcher injection
+  point on <code>ICopilotApiService</code>... Track separately when we pick this up."</em>
+  No <code>NODE_EXTRA_CA_CERTS</code> mention anywhere in it.</li>
+</ul>
+<p><strong>Caveat kept honest</strong>: <code>agentHost</code>/"Phase 2" reads like newer, possibly
+still-landing work unifying Copilot/Claude/Codex agent hosting inside VS
+Code core — not confirmed to be the exact path today's stable,
+marketplace-installed Copilot Chat extension runs on. But four independent
+pieces of evidence now agree (this doc, the archived repo's proxy-free
+networking layer, the single-purpose scope of the one real proxy helper,
+and the earlier GitHub issue on <code>overrideProxyUrl</code>) — enough to move this
+from a genuine dispute to "very likely not implemented." <strong>A live test</strong>
+(point <code>HTTPS_PROXY</code> at the gateway's listener with <code>NODE_EXTRA_CA_CERTS</code>
+set, launch VS Code with a real Copilot Chat install, check the gateway log
+for interception — the same discipline as the <code>diagnose-*.ps1</code> scripts)
+would still close it fully, but it's no longer a coin-flip.</p>
 <h3>Alternative under consideration: fork the open-source extension</h3>
 <p>Both <code>vscode</code> (MIT, <code>github.com/microsoft/vscode</code>) and <code>vscode-copilot-chat</code>
 (MIT, <code>github.com/microsoft/vscode-copilot-chat</code>) are open source. Unlike
@@ -619,6 +652,18 @@ don't have, not something we read ourselves.</p>
   <code>sessions.model = 'byok:&lt;provider_id&gt;:&lt;model_id&gt;'</code> string, confirmed from
   the same embedded SQL. Secrets are kept out of the DB entirely, in the OS
   keychain under <code>byok:&lt;provider_id&gt;:apiKey</code> / <code>...:bearerToken</code>.</li>
+<li><strong>Update 2026-09-17 — the URL override is confirmed at the runtime code
+  level, not just the schema.</strong> Read the actual BYOK provider source now
+  that it's visible in <code>microsoft/vscode</code>
+  (<code>extensions/copilot/src/extension/byok/vscode-node/openAIProvider.ts</code>
+  and <code>anthropicProvider.ts</code>): both hardcode a default (<code>'https://api.openai.com/v1'</code>,
+  <code>'api.anthropic.com'</code>), but that constant backs only <code>getModelsBaseUrl()</code>
+  — the "fetch models" convenience button. The actual completion request
+  (<code>createOpenAIEndPoint()</code>) builds its URL from <code>model.url</code>, the value
+  stored in the provider's own row. So even a <code>type='openai'</code> (not just
+  <code>type='custom'</code>) provider's <em>real inference call</em> uses whatever URL is
+  actually configured, not the hardcoded default — the runtime path
+  genuinely uses stored config, not just the schema allowing it in theory.</li>
 <li><strong>Two distinct BYOK mechanisms exist — only one is reachable from a local
   proxy.</strong> GitHub's enterprise admin console has its own, separate
   "Configure custom models" flow (AI controls → Copilot), confirmed
@@ -633,6 +678,82 @@ don't have, not something we read ourselves.</p>
   (<code>Settings → Model providers → Add provider</code>). Automating it without user
   interaction still means either a direct DB write or driving the actual
   GUI once per device; nothing changed about <em>that</em> part of the risk below.</li>
+</ul>
+<h3>The enterprise flow's actual parameters, and where inference calls really go</h3>
+<p>Enumerated directly from GitHub's admin how-to doc (<code>enable-custom-models</code>),
+not summarized loosely — every field the flow exposes:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Supported</th>
+<th>URL configurable?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OpenAI, Anthropic, xAI</td>
+<td>Yes — key entered, then a "fetch models" button queries the provider server-side</td>
+<td>No URL field described — implies a fixed, known endpoint per provider</td>
+</tr>
+<tr>
+<td>AWS Bedrock, Google AI Studio</td>
+<td>Listed as supported</td>
+<td>Not detailed in what this doc surfaced</td>
+</tr>
+<tr>
+<td>Microsoft Foundry</td>
+<td>Yes</td>
+<td><strong>Yes</strong> — explicit "Deployment URL" field, manually entered, plus manual per-model "Model ID" entries (no auto-fetch)</td>
+</tr>
+<tr>
+<td>OpenAI-compatible providers</td>
+<td>Listed as supported</td>
+<td><strong>Genuine documentation gap</strong> — this category needs <em>some</em> base-URL field by definition, but the fetched page doesn't describe one anywhere. Not confirmed either way.</td>
+</tr>
+</tbody>
+</table>
+<p>Other fields: <strong>Name</strong> (text, "shown in the model picker" — the source of the
+"under the enterprise name" label), <strong>API Key</strong> (text, with an explicit
+least-privilege-scoping recommendation), and <strong>Access</strong> scoping
+("Allow for all organizations" or per-organization checkboxes, only
+available once a model is set to "Enabled").</p>
+<p><strong>Whether actual inference calls get relayed through GitHub's own backend
+is architecture-inferred, not directly confirmed by any doc</strong> — worth
+holding to a lower confidence bar than everything sourced from <code>gh search
+code</code> above:</p>
+<ul>
+<li><strong>Enterprise custom models</strong>: very likely relayed through GitHub's CAPI
+  backend for every real inference call, not just the one-time model-list
+  fetch. Basis: the provider API key is entered once, centrally, and never
+  described as being handed to client machines — a client that never holds
+  the credential can't call OpenAI/Anthropic/xAI directly itself, so
+  GitHub's own backend is almost certainly the one making that outbound
+  call and relaying the response. Reasoned from the security model
+  (least-privilege key scoping, key held centrally), not a quoted
+  statement that calls are proxied.</li>
+<li><strong>Personal/per-device BYOK</strong> (the <code>byok_providers</code>/<code>model_providers</code>
+  table above): the opposite architecture — the key lives in the <strong>local
+  OS keychain</strong>, and the flow is documented to work <em>"without a signed-in
+  GitHub account."</em> No reason for GitHub's servers to be in the loop at
+  all; the client almost certainly calls the configured provider (or a
+  local <code>type='custom'</code> endpoint) <strong>directly</strong>. Same confidence caveat:
+  reasoned, not quoted.</li>
+<li>Either way, <strong>this doesn't change the operative conclusion</strong> for our
+  purposes: the enterprise flow is unreachable from a local proxy because
+  the calling machine is GitHub's servers, not the endpoint; the per-device
+  flow is reachable in principle (§ above) precisely because the call
+  originates locally, whichever exact path it takes to get there.</li>
+<li><strong>A real dependency for that plan, confirmed via GitHub's own docs</strong>: the
+  two BYOK tiers are additive by default (enterprise-pushed models and
+  personal BYOK entries coexist in the same model picker), but there's a
+  one-directional admin kill-switch specifically over the personal side —
+  a policy literally named <em>"Bring Your Own Language Model Key in VS
+  Code."</em> If an org has disabled it (a plausible move for exactly the
+  security-conscious orgs likely to care about this doc), personal BYOK is
+  unavailable <strong>org-wide</strong>, before any DB-write question even applies.
+  Worth checking that policy's state as an early step in any rollout, not
+  an afterthought discovered after the write already "succeeded."</li>
 </ul>
 <h3>Why a direct write still isn't a "wrong path" fix</h3>
 <ul>

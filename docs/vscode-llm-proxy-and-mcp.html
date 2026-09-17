@@ -53,8 +53,9 @@ Microsoft 365 Copilot app (neither of which is VS Code), see
 <p>Inside VS Code, three AI surfaces matter: the built-in <strong>GitHub Copilot
 Chat</strong> extension, <strong>Continue</strong>, and the <strong>Claude Code</strong> extension.
 Copilot Chat has <strong>no viable, confirmed LLM-interception path</strong> today — its
-own settings are dead, and the generic env-var mechanism is disputed and
-unresolved. Continue and Claude Code both have <strong>real, working</strong> mechanisms.
+own settings are dead, and the generic env-var mechanism is very likely not
+implemented for actual chat/completion traffic either, per Microsoft's own
+current design docs (§2.1). Continue and Claude Code both have <strong>real, working</strong> mechanisms.
 That asymmetry is the basis for the recommended posture in §5: <strong>block
 Copilot, run Claude Code and Continue instead</strong> — not as a workaround, but
 because it's the only combination with a working LLM-proxy story on both
@@ -99,25 +100,58 @@ relevant later for the <code>AllowedExtensions</code> allowlist in §5.</p>
 <li>BYOK (<code>chatLanguageModels.json</code>): additive only — adds a selectable model
   next to Copilot's own, never redirects Copilot's own default traffic.</li>
 <li>The generic <code>HTTPS_PROXY</code>/<code>HTTP_PROXY</code> + <code>NODE_EXTRA_CA_CERTS</code> mechanism
-  (the same one that works for other agents in this codebase): <strong>disputed,
-  not settled</strong>. GitHub's own docs say it's supported; real user reports
-  say the Copilot agent ignores <code>NODE_EXTRA_CA_CERTS</code>, and the practical
-  community workaround is bridging the <em>OS certificate store</em> into VS
-  Code's trust (broader than this codebase's narrow per-agent
-  <code>NODE_EXTRA_CA_CERTS</code> design). Needs a live test — point <code>HTTPS_PROXY</code>
-  at the gateway's listener with <code>NODE_EXTRA_CA_CERTS</code> set, launch a real
-  Copilot Chat session, check the gateway log — before this can be called
-  either way.</li>
-<li><strong>Forking is a considered but heavy alternative</strong>, not attempted:
-  <code>vscode-copilot-chat</code> is MIT-licensed but archived (moved into the
-  <code>microsoft/vscode</code> monorepo, 2026-05-20). The actual injection point is
-  small and precise (<code>src/platform/networking/node/nodeFetchFetcher.ts</code>'s
-  undici <code>Agent</code>, swapped for a <code>ProxyAgent</code> + custom CA), but forking means
-  tracking the much larger <code>vscode</code> repo going forward, replacing a vendor
-  binary instead of writing a config delta into one, and a deliberate
-  policy decision about running a modified build of GitHub's product
-  against the user's real entitlement. Not something to build without
-  explicit sign-off.</li>
+  (the same one that works for other agents in this codebase): <strong>very
+  likely not implemented for actual chat/completion traffic, per
+  Microsoft's own current design docs — upgraded from "disputed" after
+  checking the code where it actually lives now.</strong> The earlier "disputed"
+  framing came from checking the <em>archived</em> <code>vscode-copilot-chat</code> snapshot;
+  the real, current code moved into <code>microsoft/vscode</code> itself
+  (<code>src/vs/platform/agentHost/</code>, <code>extensions/copilot/</code>), and checking there
+  directly changes the answer:</li>
+<li><code>src/vs/platform/agentHost/node/copilot/copilotAgent.ts</code> does contain a
+    real <code>COPILOT_PROXY_ENV_KEYS</code> list and a working
+    <code>invokeWithTemporaryProxyEnvironment()</code> helper — but it has <strong>exactly
+    one call site in the whole repo</strong>, wrapping only the <em>managed settings</em>
+    fetch (the enterprise custom-models config from §5 of the coverage-gap
+    doc). Not chat/completion traffic.</li>
+<li><code>src/vs/platform/agentHost/node/networkDiagnosticsService.ts</code>'s
+    <code>PROXY_ENV_KEYS</code> (plus a <code>COPILOT_PROXY_KERBEROS_SPN</code> entry) is
+    diagnostics-only — it reports what's set, it doesn't configure
+    anything.</li>
+<li>The decisive piece: <code>agentHost/node/claude/CONTEXT.md</code>, a real
+    Microsoft design doc, states outright, filed under "Deferred for later
+    phases": <em>"HTTP proxy support (<code>HTTP_PROXY</code>/<code>HTTPS_PROXY</code> env vars,
+    VS Code's <code>http.proxy</code> setting, PAC files, proxy auth). The Phase 2
+    proxy talks to CAPI through <code>ICopilotApiService</code>, so any outbound
+    proxying is inherited from whatever HTTP client that service uses. If
+    the agent host needs to honor user proxy configuration we'll need an
+    explicit agent/dispatcher injection point on <code>ICopilotApiService</code>...
+    Track separately when we pick this up."</em> No <code>NODE_EXTRA_CA_CERTS</code>
+    mention anywhere in it either.</li>
+<li><strong>Caveat kept honest</strong>: <code>agentHost</code>/"Phase 2" reads like newer,
+    possibly still-landing work unifying Copilot/Claude/Codex agent hosting
+    inside VS Code core — not confirmed to be the exact path today's
+    stable, marketplace-installed Copilot Chat extension runs on. Four
+    independent pieces of evidence now converge on the same answer (this
+    doc, the archived repo's proxy-free networking layer, the
+    single-purpose scope of the one real proxy helper, and the earlier
+    GitHub issue on <code>overrideProxyUrl</code>), which is why the framing moved
+    from "disputed" to "very likely not implemented" — but a live test
+    (point <code>HTTPS_PROXY</code> at the gateway's listener with <code>NODE_EXTRA_CA_CERTS</code>
+    set, launch a real session, check the gateway log) is still the only
+    way to fully close it.</li>
+<li><strong>Forking is a considered but heavy alternative</strong>, not attempted. The
+  archived <code>vscode-copilot-chat</code> repo's injection point
+  (<code>src/platform/networking/node/nodeFetchFetcher.ts</code>'s undici <code>Agent</code>) may
+  itself now be stale, given the code's real current home is
+  <code>microsoft/vscode</code>'s <code>agentHost</code>/<code>extensions/copilot/</code> — re-locate the
+  actual CAPI request path there before treating any specific file/line as
+  the fork target. The trade-offs are unchanged regardless of exact
+  location: tracking the much larger <code>vscode</code> repo going forward, replacing
+  a vendor binary instead of writing a config delta into one, and a
+  deliberate policy decision about running a modified build of GitHub's
+  product against the user's real entitlement. Not something to build
+  without explicit sign-off.</li>
 </ul>
 <h3>2.2 Continue — real, working, confirmed</h3>
 <p><code>~/.continue/config.yaml</code> (macOS/Linux) or <code>%USERPROFILE%\.continue\config.yaml</code>
@@ -183,6 +217,21 @@ the actual installed extension bundle
   in the gateway log). The static evidence above is strong, but it's
   static analysis, not a live test — the same discipline this doc applies
   to Copilot Chat should be applied here too before calling it fully closed.</li>
+<li><strong>Corroborating evidence, found while checking a different surface</strong>:
+  VS Code's own <code>agentHost</code> code contains a real, shipped <code>ClaudeProxyService</code>
+  (<code>src/vs/platform/agentHost/node/claude/roadmap.md</code> — "Phase 2 marked
+  DONE") — a local HTTP server on <code>127.0.0.1</code> that speaks Anthropic's wire
+  format inbound and sets <code>ANTHROPIC_BASE_URL=http://localhost:${proxy.port}</code>
+  to redirect the Claude SDK to itself. This is a <em>different</em> surface from
+  the standalone Claude Code extension above — it's how VS Code's built-in
+  "Claude Agent" routes Claude access through a GitHub Copilot subscription
+  (outbound, it calls GitHub's own CAPI, not real <code>api.anthropic.com</code>), not
+  something we could repoint at our own gateway. But it's concrete proof,
+  from Microsoft's own shipped code, that <code>ANTHROPIC_BASE_URL</code> redirection
+  to a local proxy is a real, working mechanism for Claude specifically —
+  reinforcing rather than merely theorizing that the standalone extension's
+  bundled <code>ANTHROPIC_BASE_URL</code>/<code>HTTPS_PROXY</code> references above are genuinely
+  load-bearing.</li>
 </ul>
 <h2>3. MCP handling, per extension</h2>
 <h3>3.1 VS Code's own native MCP surface</h3>
@@ -327,8 +376,11 @@ of this blocks Step 1–3 — it's additive scope for whoever picks it up next.<
 <p>What's confirmed vs. what still needs a live test or new code, consolidated
 from every section above:</p>
 <ul>
-<li><strong>Live test, pending</strong>: Copilot Chat's <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code>
-  path (§2.1) — currently disputed between GitHub's docs and user reports.</li>
+<li><strong>Live test, pending, but now a confirmation not a coin-flip</strong>: Copilot
+  Chat's <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> path (§2.1) — Microsoft's own
+  current design docs say proxy support for actual CAPI/completion traffic
+  is deferred/unimplemented; four independent pieces of evidence now agree.
+  A live test would close it fully, but it's no longer a genuine dispute.</li>
 <li><strong>Live test, pending</strong>: Claude Code extension's dynamic traffic capture
   through the gateway (§2.3) — static bundle evidence only so far.</li>
 <li><strong>Live test, pending</strong>: <code>AllowedExtensions</code> end-to-end, both the

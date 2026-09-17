@@ -1,0 +1,349 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<title>VS Code LLM Proxy and MCP</title>
+<style>
+body {
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: #1a1a1a;
+  line-height: 1.6;
+  font-size: 16px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+h1 { font-size: 26px; border-bottom: 3px solid #2c6b58; padding-bottom: 10px; color: #16352c; }
+h2 { font-size: 19px; color: #1f5445; margin-top: 36px; border-bottom: 1px solid #d8d2c2; padding-bottom: 6px; }
+h3 { font-size: 15px; color: #2c6b58; margin-top: 26px; }
+p { margin: 10px 0; }
+a { color: #1f5445; text-decoration: none; border-bottom: 1px dotted #1f5445; }
+code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: #f1efe6;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: #5a3d1f;
+}
+pre {
+  background: #f6f4ec;
+  border: 1px solid #e2ddc9;
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+pre code { background: none; padding: 0; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 14px; }
+th, td { border: 1px solid #d8d2c2; padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: #e1eae3; color: #16352c; font-weight: 600; }
+tr:nth-child(even) td { background: #faf9f5; }
+blockquote { border-left: 3px solid #c98a3e; margin: 12px 0; padding: 6px 16px; background: #f9f1e4; color: #4a3820; }
+hr { border: none; border-top: 1px solid #d8d2c2; margin: 28px 0; }
+ul, ol { padding-left: 24px; }
+li { margin: 4px 0; }
+strong { color: #16352c; }
+</style></head><body><h1>VS Code — LLM Proxy &amp; MCP Handling, Windows vs macOS</h1>
+<p>Written 2026-09-16. Distills the VS Code-specific findings from this
+investigation into a single design reference, organized by topic rather
+than by investigation order. For the GitHub Copilot desktop app and the
+Microsoft 365 Copilot app (neither of which is VS Code), see
+<code>copilot-desktop-apps-coverage-gap.html</code>.</p>
+<h2>Summary</h2>
+<p>Inside VS Code, three AI surfaces matter: the built-in <strong>GitHub Copilot
+Chat</strong> extension, <strong>Continue</strong>, and the <strong>Claude Code</strong> extension.
+Copilot Chat has <strong>no viable, confirmed LLM-interception path</strong> today — its
+own settings are dead, and the generic env-var mechanism is disputed and
+unresolved. Continue and Claude Code both have <strong>real, working</strong> mechanisms.
+That asymmetry is the basis for the recommended posture in §5: <strong>block
+Copilot, run Claude Code and Continue instead</strong> — not as a workaround, but
+because it's the only combination with a working LLM-proxy story on both
+platforms today.</p>
+<h2>1. The three surfaces</h2>
+<table>
+<thead>
+<tr>
+<th>Surface</th>
+<th>What it is</th>
+<th>LLM routing status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>GitHub Copilot Chat</strong> (<code>github.copilot-chat</code>)</td>
+<td>VS Code's built-in AI chat/completions, from GitHub</td>
+<td>No working redirect. See §2.1</td>
+</tr>
+<tr>
+<td><strong>Continue</strong> (<code>continue.continue</code>)</td>
+<td>Open-source, config-file-driven AI extension</td>
+<td>Real, works via <code>apiBase</code>. See §2.2</td>
+</tr>
+<tr>
+<td><strong>Claude Code</strong> (<code>anthropic.claude-code</code>)</td>
+<td>Anthropic's extension, wraps the same engine as the <code>claude</code> CLI</td>
+<td>Real, <strong>already shipped</strong> in our gateway. See §2.3</td>
+</tr>
+</tbody>
+</table>
+<p>All three are installed on the reference machine used for this
+investigation, alongside <code>vscodevim.vim</code> and a Zscaler monitor extension —
+relevant later for the <code>AllowedExtensions</code> allowlist in §5.</p>
+<h2>2. LLM proxy handling, per extension</h2>
+<h3>2.1 GitHub Copilot Chat — no viable path today</h3>
+<ul>
+<li><code>github.copilot.advanced.debug.overrideProxyUrl</code> / <code>overrideCapiUrl</code>:
+  real settings, but documented as overriding the GitHub <em>authentication</em>
+  proxy only, and a confirmed GitHub issue shows <code>github.copilot-chat</code>
+  <strong>ignores them entirely</strong>. Dead end, not a live option.</li>
+<li>BYOK (<code>chatLanguageModels.json</code>): additive only — adds a selectable model
+  next to Copilot's own, never redirects Copilot's own default traffic.</li>
+<li>The generic <code>HTTPS_PROXY</code>/<code>HTTP_PROXY</code> + <code>NODE_EXTRA_CA_CERTS</code> mechanism
+  (the same one that works for other agents in this codebase): <strong>disputed,
+  not settled</strong>. GitHub's own docs say it's supported; real user reports
+  say the Copilot agent ignores <code>NODE_EXTRA_CA_CERTS</code>, and the practical
+  community workaround is bridging the <em>OS certificate store</em> into VS
+  Code's trust (broader than this codebase's narrow per-agent
+  <code>NODE_EXTRA_CA_CERTS</code> design). Needs a live test — point <code>HTTPS_PROXY</code>
+  at the gateway's listener with <code>NODE_EXTRA_CA_CERTS</code> set, launch a real
+  Copilot Chat session, check the gateway log — before this can be called
+  either way.</li>
+<li><strong>Forking is a considered but heavy alternative</strong>, not attempted:
+  <code>vscode-copilot-chat</code> is MIT-licensed but archived (moved into the
+  <code>microsoft/vscode</code> monorepo, 2026-05-20). The actual injection point is
+  small and precise (<code>src/platform/networking/node/nodeFetchFetcher.ts</code>'s
+  undici <code>Agent</code>, swapped for a <code>ProxyAgent</code> + custom CA), but forking means
+  tracking the much larger <code>vscode</code> repo going forward, replacing a vendor
+  binary instead of writing a config delta into one, and a deliberate
+  policy decision about running a modified build of GitHub's product
+  against the user's real entitlement. Not something to build without
+  explicit sign-off.</li>
+</ul>
+<h3>2.2 Continue — real, working, confirmed</h3>
+<p><code>~/.continue/config.yaml</code> (macOS/Linux) or <code>%USERPROFILE%\.continue\config.yaml</code>
+(Windows) — same file, same schema, no platform-specific quirks found.
+<code>apiBase</code> + <code>requestOptions.headers</code> genuinely redirects a model's traffic
+to an arbitrary endpoint; confirmed against Continue's own docs, matching
+field-for-field.</p>
+<pre><code class="language-yaml">name: Local Config
+version: 1.0.0
+schema: v1
+models:
+  - name: Local Proxy Chat
+    provider: openai
+    model: &lt;model-id&gt;
+    apiBase: http://127.0.0.1:&lt;PORT&gt;/v1
+    roles: [chat, edit, apply]
+  - name: Local Proxy Autocomplete
+    provider: openai
+    model: &lt;autocomplete-model-id&gt;
+    apiBase: http://127.0.0.1:&lt;PORT&gt;/v1
+    roles: [autocomplete]
+</code></pre>
+<p><strong>Not yet wired into ai-gateway</strong>, and this is real, scoped work, not a
+config tweak:
+1. A new <code>continue.rs</code> agent adapter (parallel to <code>copilot.rs</code>/<code>devin.rs</code>).
+2. A new <code>Llm::</code> render shape — every existing shape writes a scalar at a
+   fixed nested key; Continue needs a model entry <em>appended/upserted into a
+   <code>models</code> array by name</em>, a genuinely different write pattern.
+3. YAML file support may not exist in <code>apply_config_delta</code>/<code>config_render</code>
+   today (everything seen so far is JSON/TOML-oriented) — needs confirming,
+   not assuming.
+4. <code>Llm::BaseUrl</code>-style semantics fit the intent better than <code>ForwardProxy</code>
+   (a straight redirect to a local URL, no CA/CONNECT-tunnel involved).</p>
+<p>Until this is built, the port ai-gateway's listener binds to is chosen
+dynamically at runtime and threaded through to every other agent's config
+automatically — there is no static port value to hand-type into Continue's
+<code>config.yaml</code> that would stay correct.</p>
+<h3>2.3 Claude Code extension — real, working, already shipped</h3>
+<p>No new work needed here — <code>"claude"</code> is already in <code>ENABLED_AGENTS</code> and is
+a real, shipped, brokered agent in this codebase today. Verified
+specifically for the <em>VS Code extension</em> (not just the bare CLI), against
+the actual installed extension bundle
+(<code>anthropic.claude-code-2.1.273-darwin-arm64/extension.js</code>), not assumed:</p>
+<ul>
+<li>The bundle contains <code>HTTPS_PROXY</code>, <code>HTTP_PROXY</code>, <code>NODE_EXTRA_CA_CERTS</code>,
+  and <code>ANTHROPIC_BASE_URL</code> as literal strings, in the same table as
+  unmistakably-CLI-internal names (<code>CLAUDE_STREAM_IDLE_TIMEOUT_MS</code>,
+  <code>MAX_THINKING_TOKENS</code>) — it bundles the same core engine as the CLI, not
+  a separate reimplementation. <code>child_process</code>/<code>spawn(</code>/<code>execFile(</code> are all
+  present too.</li>
+<li>One decisive line: <code>vscode.workspace.getConfiguration("http").get("proxy")</code>
+  — the extension <strong>actively reads VS Code's own core <code>http.proxy</code>
+  setting</strong>, unlike Copilot Chat, which was confirmed to do nothing of the
+  kind anywhere in its config layer.</li>
+<li>Correction made during this same investigation: the extension does
+  <strong>not</strong> register a ghost-text inline-completion provider (an earlier,
+  secondary-sourced claim that didn't survive checking the real bundle).
+  Its interaction model is a chat panel plus a review/accept-reject diff
+  workflow. Relevant if VS Code's inline-autocomplete UX matters to the
+  rollout — Claude Code doesn't provide it; Continue does (§2.2).</li>
+<li><strong>Not yet done</strong>: a live, dynamic traffic-capture test (point
+  <code>HTTPS_PROXY</code> at the gateway, launch the extension, confirm interception
+  in the gateway log). The static evidence above is strong, but it's
+  static analysis, not a live test — the same discipline this doc applies
+  to Copilot Chat should be applied here too before calling it fully closed.</li>
+</ul>
+<h2>3. MCP handling, per extension</h2>
+<h3>3.1 VS Code's own native MCP surface</h3>
+<p>VS Code has its own built-in MCP support: <code>.vscode/mcp.json</code> (project scope)
+using a <code>servers</code> key (not <code>mcpServers</code> — a real, previously-noted
+difference from most other agents' convention). The file is JSONC
+(comment-carrying), which matters for any writer that does a strict
+JSON upsert.</p>
+<p><code>ai-gateway/agent-manager/src/agents/vscode.rs</code> already has an <code>AgentSpec</code>
+for this surface, but it is <strong>dormant</strong> — registered in <code>build_adapters()</code>
+but not in <code>ENABLED_AGENTS</code>, so it ships dark. Its own doc comment states
+the intent plainly: <em>"exists to wire the editor's own MCP if we ever broker
+it independently."</em> Enabling it is a real option already built, not
+something to design from scratch — but:
+- The comment-preserving JSON edit needed for a JSONC file is flagged
+  elsewhere as its own follow-up, not yet built.
+- <strong>Unverified in this investigation</strong>: whether GitHub Copilot Chat itself
+  consumes this same native <code>mcp.json</code> surface today, or has an entirely
+  separate MCP registration path. Worth confirming directly before
+  assuming enabling <code>vscode.rs</code> covers Copilot's MCP usage too — it may
+  only cover extensions that opt into VS Code's native MCP API.</p>
+<h3>3.2 Continue's own MCP surface</h3>
+<p>Continue has its own, separate MCP registration — an <code>mcpServers</code> key in
+<code>config.yaml</code>, plugging into the same context-provider surface as
+<code>@terminal</code>/<code>@codebase</code>/etc. This is <strong>not</strong> the same surface as VS Code's
+native <code>.vscode/mcp.json</code>; the two are independent registries, the same
+"an agent can have more than one MCP surface" pattern already documented
+for other agents in this codebase (e.g. OpenClaw's native config vs. its
+<code>mcporter</code> registry vs. its plugin-bundle MCP). No adapter exists for this
+today — folding it in would be additional scope on top of the LLM-routing
+work in §2.2, not included in it automatically.</p>
+<h3>3.3 Claude Code's MCP surface</h3>
+<p><strong>Not yet verified in this investigation.</strong> The bare <code>claude</code> CLI has its
+own MCP configuration (project/user-scope <code>.mcp.json</code> or equivalent),
+already handled by the existing <code>claude</code> adapter for the CLI case. Whether
+the VS Code <em>extension</em> reads that exact same file, or has an
+extension-specific MCP registration path of its own, hasn't been checked
+here — given §2.3 found the extension bundles the same core engine as the
+CLI, the same-file answer is plausible but not confirmed. Flag as a
+verification item before assuming MCP coverage carries over automatically
+from the CLI adapter to the extension.</p>
+<h2>4. Windows vs macOS — where the solution actually differs</h2>
+<p>The LLM-proxy <em>mechanism itself</em> (env vars, <code>apiBase</code>, <code>http.proxy</code>) showed
+no platform-specific quirks in this investigation — <code>config.yaml</code>'s schema,
+the extension bundle's proxy-string references, and the general env-var
+approach are all identical cross-platform. The real platform divergence is
+entirely in <strong>policy/blocking delivery</strong> — how <code>AllowedExtensions</code> actually
+reaches the machine, covered in full in §5.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Windows</th>
+<th>macOS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Policy delivery mechanism</td>
+<td>Registry (<code>HKLM\SOFTWARE\Policies\Microsoft\VSCode</code>)</td>
+<td>Apple Configuration Profile (<code>.mobileconfig</code>)</td>
+</tr>
+<tr>
+<td>Who traditionally owns it</td>
+<td>Group Policy (AD, ADMX-templated)</td>
+<td>N/A — Apple's own profile system</td>
+</tr>
+<tr>
+<td>Can ai-protect (elevated) write it directly?</td>
+<td><strong>Yes, confirmed</strong> — LocalSystem has unrestricted HKLM access, existing real-world precedent (see §5)</td>
+<td><strong>Unverified</strong> — mechanically possible (not SIP-protected), but whether it's honored/durable against MDM reconciliation is untested</td>
+</tr>
+<tr>
+<td>MDM-native push path</td>
+<td>Intune's Settings Catalog/ADMX ingestion <strong>refuses</strong> to write this path by design (conflict-avoidance with GPO)</td>
+<td>Standard MDM profile push (Jamf/Intune-for-Mac/Workspace ONE) — no blocking mechanism found</td>
+</tr>
+<tr>
+<td>MDM workaround if native path is blocked</td>
+<td>Intune Remediations (SYSTEM-context script, writes the registry key directly)</td>
+<td>N/A found — no equivalent blocker to work around on macOS</td>
+</tr>
+<tr>
+<td>Manual/local install path</td>
+<td>Direct registry write (any elevated process)</td>
+<td><code>profiles</code> CLI <strong>cannot install</strong> profiles as of macOS 11+ (confirmed via <code>man profiles</code>) — human double-click + admin auth in System Settings, or real MDM, only</td>
+</tr>
+</tbody>
+</table>
+<h2>5. The recommended solution: block Copilot, allow Claude Code and Continue</h2>
+<p><strong>Step 1 — Block Copilot via <code>AllowedExtensions</code>.</strong> This is a strict
+allowlist, not a denylist: everything omitted is blocked or disabled,
+installed or not. The value that blocks Copilot while keeping the rest of
+this reference machine's actual extensions working:</p>
+<pre><code class="language-json">{&quot;anthropic.claude-code&quot;:true,&quot;continue.continue&quot;:true,&quot;vscodevim.vim&quot;:true,&quot;zscaler.zscaler-ide-plugin-monitor&quot;:true}
+</code></pre>
+<ul>
+<li><strong>Windows</strong>: write directly to
+  <code>HKLM\SOFTWARE\Policies\Microsoft\VSCode\AllowedExtensions</code> (<code>REG_SZ</code>,
+  the JSON above as the string value). ai-protect, running as LocalSystem,
+  can do this the same way it writes every other agent's config — no new
+  privilege model needed. If a Windows fleet is Intune-managed, don't push
+  this through Intune's normal policy UI (it will silently no-op); use an
+  Intune Remediation script instead, or have ai-protect write it directly
+  regardless of what Intune does.</li>
+<li><strong>macOS</strong>: requires a <code>.mobileconfig</code> Configuration Profile carrying this
+  value under the <code>AllowedExtensions</code> key, with <code>PayloadScope</code> explicitly
+  set to <code>System</code> (the shipped VS Code template omits this key entirely —
+  don't rely on whatever the undocumented default turns out to be).
+  Installation is either a human double-click + admin auth, or a real MDM
+  push — <strong>ai-protect cannot script this locally</strong> the way it does the
+  Windows registry write; that's a structural platform difference, not a
+  missing feature.</li>
+<li><strong>Two reliability caveats apply on both platforms regardless of delivery
+  mechanism</strong>: the value can silently be ignored past roughly 1024
+  characters (acknowledged by a VS Code maintainer as a real limitation of
+  the policy itself), and there is at least one unresolved public report of
+  the policy not blocking installation in some configuration. Treat this
+  as "documented to work," not "proven to work," until the test recipe in
+  §6 has actually been run.</li>
+</ul>
+<p><strong>Step 2 — Claude Code needs no new work.</strong> It's already a shipped,
+enabled agent (<code>ENABLED_AGENTS</code> includes <code>"claude"</code>), and §2.3's static
+analysis shows the VS Code extension shares the CLI's proxy mechanism. The
+one gap is verification, not construction: run the live dynamic-traffic
+test before treating extension coverage as equivalent to CLI coverage.</p>
+<p><strong>Step 3 — Continue needs real, scoped engineering before it can be wired
+the same way.</strong> §2.2's four items (new adapter, new array-upsert <code>Llm::</code>
+shape, confirming YAML support, <code>BaseUrl</code>-style semantics) are the concrete
+backlog. Until built, Continue's <code>apiBase</code> has no dynamically-resolved
+value to point at — hand-typing a fixed port is exactly the failure mode
+the whole <code>config_render</code> pipeline exists to avoid, and shouldn't be done
+as a stopgap.</p>
+<p><strong>Step 4 — MCP is optional, separate scope, not required for the LLM-proxy
+outcome.</strong> If MCP coverage matters for this rollout: enabling the dormant
+<code>vscode.rs</code> adapter covers VS Code's native <code>mcp.json</code> surface (real code,
+just switched off, plus the JSONC comment-preservation follow-up);
+Continue's own <code>mcpServers</code> registry would need a new adapter entirely;
+Claude Code's MCP surface inside the extension is unverified (§3.3). None
+of this blocks Step 1–3 — it's additive scope for whoever picks it up next.</p>
+<h2>6. Verification backlog</h2>
+<p>What's confirmed vs. what still needs a live test or new code, consolidated
+from every section above:</p>
+<ul>
+<li><strong>Live test, pending</strong>: Copilot Chat's <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code>
+  path (§2.1) — currently disputed between GitHub's docs and user reports.</li>
+<li><strong>Live test, pending</strong>: Claude Code extension's dynamic traffic capture
+  through the gateway (§2.3) — static bundle evidence only so far.</li>
+<li><strong>Live test, pending</strong>: <code>AllowedExtensions</code> end-to-end, both the
+  file-drop-is-honored question and the MDM-reconciliation question — a
+  full recipe exists (disposable VM, snapshot first) but hasn't been run.</li>
+<li><strong>Unverified</strong>: whether Copilot Chat consumes VS Code's native
+  <code>.vscode/mcp.json</code> (§3.1), or has its own separate MCP path.</li>
+<li><strong>Unverified</strong>: whether the Claude Code <em>extension</em> uses the same MCP
+  config file as the bare CLI, or something extension-specific (§3.3).</li>
+<li><strong>Not yet built</strong>: the Continue agent adapter and its new <code>Llm::</code> render
+  shape (§2.2) — required before Continue's LLM routing can be dynamically
+  wired rather than hand-configured.</li>
+<li><strong>Not yet built</strong>: Continue's own MCP adapter (§3.2), and the JSONC
+  comment-preserving writer needed to safely enable <code>vscode.rs</code> (§3.1).</li>
+<li><strong>Not attempted, needs explicit sign-off if pursued</strong>: forking
+  <code>vscode-copilot-chat</code>/<code>vscode</code> for Copilot Chat interception (§2.1) — a
+  heavier, different-shaped commitment than everything else in this list.</li>
+</ul></body></html>

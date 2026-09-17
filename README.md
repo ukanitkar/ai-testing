@@ -69,6 +69,18 @@ history dump, gitignored in `ai-protect` itself) and `ai-gateway/docs/jeswin.htm
   adapter architecture can merge into — a real coverage gap, but one
   needing new design work, not a quick fix.
 
+## New (authored here, 2026-09-16)
+
+- `docs/vscode-llm-proxy-and-mcp.html` — VS Code-focused design reference
+  (distinct from the coverage-gap doc above): LLM-proxy and MCP handling
+  for the three in-editor AI surfaces (Copilot Chat, Continue, Claude
+  Code), how the solution differs between Windows and macOS (almost
+  entirely in policy/blocking delivery, not the LLM-proxy mechanism
+  itself), and a recommended solution — block Copilot via
+  `AllowedExtensions`, run Claude Code (already shipped) and Continue
+  (needs a new adapter) instead — plus a consolidated verification
+  backlog.
+
 ## Historical (recovered from deletion, commit `7bdeb17a`)
 
 Everything else was **deleted** from `ai-protect` in commit `7bdeb17a`

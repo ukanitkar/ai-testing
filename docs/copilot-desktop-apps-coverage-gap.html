@@ -202,6 +202,138 @@ from a genuine dispute to "very likely not implemented." <strong>A live test</st
 set, launch VS Code with a real Copilot Chat install, check the gateway log
 for interception — the same discipline as the <code>diagnose-*.ps1</code> scripts)
 would still close it fully, but it's no longer a coin-flip.</p>
+<h3>A more promising lead: hijacking CAPI discovery via <code>github-enterprise.uri</code></h3>
+<p>Found 2026-09-17 while tracing where the CAPI host actually comes from.
+Unlike the <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> path above (very likely
+unimplemented) or forking (heavy, needs sign-off), this is a <strong>plain
+settings.json key</strong> — same write mechanism as <code>chat.disableAIFeatures</code> —
+and the core mechanism is source-confirmed, not theorized.</p>
+<p><strong>How Copilot actually finds its CAPI host, traced end to end:</strong></p>
+<ol>
+<li><code>github-enterprise.uri</code> (confirmed via <code>gh search code</code> — resolves from
+   <code>product.json</code>'s <code>defaultChatAgent.providerUriSetting</code>, read in
+   <code>defaultAccount.ts</code>'s <code>getEnterpriseUrl()</code> via a plain
+   <code>configurationService.getValue(...)</code> call) is parsed as a <code>URL</code>.</li>
+<li>That URL's <code>protocol</code>/<code>hostname</code>/<code>port</code> are used to build a discovery
+   request: <code>${protocol}//api.${hostname}${port}/copilot_internal/user</code>
+   (verbatim from <code>defaultAccount.ts</code>). For a <strong>consumer</strong> account with no
+   enterprise URI set, this same path is instead called against the fixed
+   <code>https://api.github.com/copilot_internal/user</code> (confirmed in
+   <code>product.json</code>, <code>extensions/copilot/CONTRIBUTING.md</code>, and multiple
+   tests).</li>
+<li>That response's <strong><code>endpoints.api</code></strong> field becomes the CAPI host used for
+   all subsequent chat/completion traffic. Confirmed by two tests in
+   <code>copilotApiService.test.ts</code>: one literally named <em>"uses endpoints.api
+   from the /copilot_internal/user response as the CAPI base,"</em> the other
+   <em>"falls back to default API base when endpoints.api is missing."</em> A
+   code comment in <code>githubEndpoints.ts</code> adds the key property: <code>endpoints.api</code>
+   <em>"is not derivable from the enterprise URI"</em> — the client doesn't
+   independently validate or recompute it, it trusts whatever the
+   discovery response says.</li>
+</ol>
+<p><strong>The plan this enables</strong>: set <code>github-enterprise.uri</code> in <code>settings.json</code>
+to point at our own local listener. Have the listener answer (or relay,
+rewriting only the one field) the <code>/copilot_internal/user</code> call, setting
+<code>endpoints.api</code> to itself. Every subsequent CAPI request Copilot makes
+would then go to our listener, which forwards to the real backend and
+relays the response — the same "forward and observe" pattern this
+codebase's other adapters already use, not a fabricated fake account.</p>
+<p><strong>A real gap found in the same search — this would not capture everything
+Copilot touches.</strong> A second, completely independent hardcoded reference
+exists purely for GitHub's own hosted MCP server:</p>
+<pre><code class="language-typescript">export const GITHUB_DOT_COM_COPILOT_API_BASE_URI = 'https://api.githubcopilot.com';
+</code></pre>
+<p>used directly (with a <code>/mcp/</code> suffix) in <code>githubMcpDefinitionProvider.ts</code>
+and MCP management code — a fixed literal, <strong>not</strong> derived from
+<code>endpoints.api</code>. Redirecting CAPI discovery this way very likely leaves
+GitHub's hosted MCP server traffic (if the user has it configured) going
+to the real host, untouched. "Hijack all inference calls" overstates it —
+this looks like a CAPI-chat/completion-specific lever, not a universal one.</p>
+<p><strong>Genuinely unverified, would need live testing rather than more reading:</strong></p>
+<ul>
+<li>Whether setting <code>github-enterprise.uri</code> alone redirects a normal
+  <em>consumer</em> (github.com) account's discovery call, or whether it only
+  takes effect once the account is authenticated through a distinct
+  GitHub Enterprise sign-in flow — which would mean the local listener
+  also has to convincingly complete a GHE-shaped OAuth/device-flow
+  exchange, not just answer one JSON endpoint.</li>
+<li>Whether the <code>endpoints.api</code> value is validated/normalized on receipt — a
+  <code>normalizeCopilotApiEndpoint</code> function turned up in test references,
+  implying <em>some</em> normalization exists; not traced whether it would reject
+  a bare <code>http://127.0.0.1:&lt;port&gt;</code> value.</li>
+<li><strong>The potentially bigger win, still unconfirmed</strong>: whether <code>https://</code> is
+  actually required, or whether a plain <code>http://</code> local address is
+  accepted. If the latter, this sidesteps the CA-trust/TLS-interception
+  problem this entire investigation has been circling — no
+  <code>NODE_EXTRA_CA_CERTS</code>, no CA to install, nothing to trust, because the
+  client would be initiating a genuine plaintext connection to our own
+  process rather than a TLS session it has to be tricked into trusting.</li>
+</ul>
+<h4>Workflow: consumer vs. enterprise CAPI discovery, and the proposed hijack</h4>
+<p>Each hop below is a real, traced call — the number of indirections is the
+actual point: the client never talks to CAPI first, it always resolves it
+through one extra call, in both cases.</p>
+<p><strong>1. Consumer account — no <code>github-enterprise.uri</code> set:</strong></p>
+<pre><code>VS Code (Copilot Chat)                api.github.com              api.githubcopilot.com
+        |                                    |                          (CAPI, hardcoded default)
+        |                                    |                                  |
+        |-- GET /copilot_internal/user -----&gt;|                                  |
+        |   Authorization: Bearer &lt;token&gt;    |                                  |
+        |                                    |                                  |
+        |&lt;-- 200 { endpoints: { -------------|                                  |
+        |      api: &quot;https://api.githubcopilot.com&quot; } }                         |
+        |                                    |                                  |
+        |  [ endpoints.api cached as the CAPI base for this session ]           |
+        |                                    |                                  |
+        |------------------------------- POST /chat/completions ---------------&gt;|
+        |&lt;------------------------------ 200 { completion } ---------------------|
+</code></pre>
+<p><strong>2. Enterprise account — <code>github-enterprise.uri</code> set to a real GHE server:</strong></p>
+<pre><code>settings.json: &quot;github-enterprise.uri&quot;: &quot;https://github.mycompany.com&quot;
+        |
+        v  getEnterpriseUrl() reads it via configurationService.getValue(...)
+        |
+VS Code (Copilot Chat)          api.github.mycompany.com        &lt;whatever endpoints.api says&gt;
+        |                              |                                  |
+        |-- GET /copilot_internal/user -----------------&gt;|                 |
+        |   (host derived: api.&lt;enterpriseUrl.hostname&gt;) |                 |
+        |                              |                                  |
+        |&lt;-- 200 { endpoints: { api: &quot;&lt;enterprise CAPI host&gt;&quot; } } ---------|
+        |                              |                                  |
+        |  [ NOT derivable from the enterprise URI alone — the client      |
+        |    trusts whatever this response says, verbatim ]                |
+        |                              |                                  |
+        |-------------------------------------------- POST /chat/completions ---&gt;|
+        |&lt;--------------------------------------------- 200 { completion } ------|
+</code></pre>
+<p><strong>3. Proposed hijack — same shape as the enterprise case, our listener
+inserted at the one hop that matters:</strong></p>
+<pre><code>settings.json: &quot;github-enterprise.uri&quot;: &quot;http://127.0.0.1:&lt;gateway-port&gt;&quot;
+        |
+        v
+VS Code (Copilot Chat)        our local listener              real api.github.com        real CAPI backend
+        |                          |                                  |                          |
+        |-- GET /copilot_internal/user --&gt;|                            |                          |
+        |                          |-- relay real request (real auth) -------------&gt;|              |
+        |                          |&lt;---------------- real 200 response ------------|              |
+        |                          |                            |                          |
+        |                    [ rewrite ONLY endpoints.api to point back    |                          |
+        |                      at our listener; pass everything else       |                          |
+        |                      through unmodified ]                        |                          |
+        |&lt;-- 200 { endpoints: { api: &quot;http://127.0.0.1:&lt;gateway-port&gt;&quot; } } |                          |
+        |                          |                            |                          |
+        |----------------------------- POST /chat/completions --&gt;|                          |
+        |                          |-- relay/observe, forward to real CAPI ---------------------------&gt;|
+        |                          |&lt;----------------------------------------------- 200 { completion } |
+        |&lt;---------------- 200 { completion } -------------------|                          |
+</code></pre>
+<p>The account-authenticity problem this diagram makes visible: step one in
+the hijack still needs a <em>real</em>, valid GitHub token to relay through — our
+listener isn't fabricating an account, it's sitting in the one hop that
+decides where every later hop goes. That's exactly why "does this work for
+an already-signed-in consumer account, or does it need a real GHE OAuth
+exchange first" (above) is the load-bearing open question, not the rewrite
+itself.</p>
 <h3>Alternative under consideration: fork the open-source extension</h3>
 <p>Both <code>vscode</code> (MIT, <code>github.com/microsoft/vscode</code>) and <code>vscode-copilot-chat</code>
 (MIT, <code>github.com/microsoft/vscode-copilot-chat</code>) are open source. Unlike
@@ -807,15 +939,17 @@ code</code> above:</p>
      "Configure custom models" flow is not a substitute — it's server-side
      and can't reach a <code>127.0.0.1</code> listener.</li>
 <li><strong>VS Code claim — the "which surface was tested" question is resolved
-   (almost certainly the CLI in a terminal), but the mechanism question is
-   reopened, not closed.</strong> Copilot Chat's own internal debug settings are
-   confirmed dead, and writing them via <code>settings.json</code> programmatically
-   (mechanically trivial, same JSON-merge pattern used elsewhere here)
-   would accomplish nothing. But the generic <code>HTTPS_PROXY</code>/<code>HTTP_PROXY</code> +
-   <code>NODE_EXTRA_CA_CERTS</code> mechanism is unresolved — GitHub's own docs say it
-   works, real user reports say it doesn't, and it needs a live test (see
-   "Reopened" above) rather than a decision from secondary sources either
-   way.</li>
+   (almost certainly the CLI in a terminal), but the mechanism question has
+   moved, not closed.</strong> Copilot Chat's own internal debug settings are
+   confirmed dead. The generic <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> mechanism
+   is now "very likely unimplemented for CAPI traffic," per Microsoft's own
+   design docs — no longer worth chasing further. The live, more promising
+   lead is <strong><code>github-enterprise.uri</code></strong> hijacking CAPI discovery (see "A more
+   promising lead" above) — a plain <code>settings.json</code> write, source-confirmed
+   mechanism, with three concrete open questions (consumer-account gating,
+   <code>endpoints.api</code> validation, and whether <code>http://</code> is accepted at all —
+   the last one potentially sidestepping the CA-trust problem entirely).
+   Test this before either of the other two.</li>
 <li><strong>If a live test confirms the extension can't be redirected, decide
    deliberately whether to fork <code>vscode-copilot-chat</code> (MIT, open source)</strong>
    rather than treat "no supported hook" as the end of the line — see

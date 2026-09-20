@@ -376,13 +376,23 @@ of this blocks Step 1–3 — it's additive scope for whoever picks it up next.<
 <p>What's confirmed vs. what still needs a live test or new code, consolidated
 from every section above:</p>
 <ul>
-<li><strong>Live test, pending, but now a confirmation not a coin-flip</strong>: Copilot
-  Chat's <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> path (§2.1) — Microsoft's own
-  current design docs say proxy support for actual CAPI/completion traffic
-  is deferred/unimplemented; four independent pieces of evidence now agree.
-  A live test would close it fully, but it's no longer a genuine dispute.</li>
+<li><strong>Closed, not just "confirmed" — live-tested 2026-09-18</strong>: Copilot Chat's
+  <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> path (§2.1) was already "very likely
+  unimplemented" per Microsoft's design docs; the related
+  <code>github-enterprise.uri</code> CAPI-discovery hijack (the coverage-gap doc's more
+  promising-looking lead) was actually built and live-tested against a real,
+  authenticated Copilot Chat session — zero requests reached the test
+  listener across a cold restart and a full sign-out/sign-in, and the source
+  confirms why: <code>enterprise</code> is hardcoded <code>false</code> for a normal sign-in,
+  independent of any settings.json value. Three real mechanisms tried,
+  three dead ends, for a consumer account specifically.</li>
 <li><strong>Live test, pending</strong>: Claude Code extension's dynamic traffic capture
-  through the gateway (§2.3) — static bundle evidence only so far.</li>
+  through the gateway (§2.3) — static bundle evidence only so far. The test
+  infrastructure now exists to actually run this (<code>ai-gateway-simple</code>/
+  <code>ai-protect-simple</code>, in <code>ai-gateway/gateway-simple</code> and
+  <code>ai-gateway/protect-simple</code> — runs unprivileged, no VM needed), built for
+  the CAPI-discovery test above but generically reusable for a different
+  agent/config-delta target.</li>
 <li><strong>Live test, pending</strong>: <code>AllowedExtensions</code> end-to-end, both the
   file-drop-is-honored question and the MDM-reconciliation question — a
   full recipe exists (disposable VM, snapshot first) but hasn't been run.</li>

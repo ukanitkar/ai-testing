@@ -1,4 +1,4 @@
-# Microsoft 365 Copilot — why the GitHub Copilot interception approach doesn't transfer
+# Intercepting Microsoft 365 Copilot traffic: the two real blockers, and what closing each one costs
 
 Written 2026-09-21, as a follow-up to `copilot-desktop-apps-coverage-gap.html`'s
 disambiguation of the word "Copilot." That doc ruled Microsoft 365 Copilot
@@ -9,11 +9,15 @@ separate question raised afterward: **forget GitHub entirely — could the same
 *kind* of approach (a local listener a client is redirected to, relaying to
 the real backend) work against Microsoft 365 Copilot on its own terms?**
 
-**Short answer: no, for two independent reasons, checked against Microsoft's
-own current admin documentation, not guessed.** Either one alone would be
-enough to close this; both being true makes it a firmer close than the VS
-Code Copilot Chat case, which at least had one real, if gated, lever to
-chase.
+**Short answer: not through any existing lever or capability — but, on
+working the alternatives through in full, this isn't a dead end the way it
+first looked.** Both reasons below have an identified, buildable path
+forward, checked against Microsoft's own current admin documentation and
+real reverse-engineering, not guessed — each at a real, specific cost rather
+than a structural impossibility. That changes what kind of conclusion this
+is: not "closed," but "open, at a cost this section spells out, pending a
+resourcing and risk decision." See **Net assessment** for where that leaves
+this relative to the VS Code Copilot Chat case.
 
 ## What Microsoft 365 Copilot actually is
 
@@ -198,7 +202,7 @@ would be new, real engineering work, not a reuse of anything that exists
 today — and it would only be worth attempting after Reason 1 is somehow
 solved, which it currently isn't.
 
-## Considered and rejected: bridge WSS↔HTTP around Optimus's HTTP-only relay
+## Considered: bridge WSS↔HTTP around Optimus's HTTP-only relay
 
 A natural next idea, raised and worked through in this investigation: since
 Optimus's `forward()` only ever speaks HTTP, could our own listener terminate
@@ -232,55 +236,77 @@ blob through Optimus untouched (Optimus doesn't need to understand SignalR
 at all here, just move bytes — within what `forward()` already does), and
 translate back on the way out.
 
-The problem: **something on the far end still has to open a real WebSocket
-to `substrate.office.com`.** Optimus's `forward()` speaks HTTP to the
-upstream; it has no "open a WebSocket to the real backend and tunnel these
-bytes through it" capability. This design doesn't eliminate the
+The problem, as first stated: **something on the far end still has to open a
+real WebSocket to `substrate.office.com`.** Optimus's `forward()` speaks HTTP
+to the upstream; it has no "open a WebSocket to the real backend and tunnel
+these bytes through it" capability today. This design doesn't eliminate the
 WebSocket-handling problem — it relocates *who* has to solve it, from this
-codebase's listener to Optimus itself, which isn't code in this repo; it's
-Zscaler's separate cloud gateway product. That's a materially bigger ask
-than anything else in this investigation, all of which stayed inside
-`ai-protect`/`ai-gateway`.
+codebase's listener to Optimus itself.
 
-**The sharper version of Design B, and why it's a tradeoff rather than a
-loophole.** If instead the listener itself opened the real WebSocket to
+**That relocation is a real cost, not a dead end.** Optimus isn't code in
+this repo, but it isn't a true third-party black box either — it's
+Zscaler's own cloud policy gateway. "Optimus needs to learn to carry a
+SignalR session" is a legitimate cross-team engineering proposal, not
+something to write off as out of reach. What it actually requires: Optimus
+would need to do for a live, stateful WebSocket what `forward()` does today
+for a single HTTP request/response — hold the connection open for its full
+duration, preserve (or at least not corrupt) the SignalR frame boundaries,
+answer keep-alive pings on whichever leg needs them, and still apply policy
+to the content flowing through it rather than just moving bytes blindly.
+That's a materially different capability than tunneling one-shot
+request/response pairs — bigger and longer-lived than anything else in this
+investigation — but it's an engineering investment to scope and propose, not
+a structural impossibility.
+
+**The sharper, cheaper alternative, and why it's a tradeoff rather than a
+free win.** If instead the listener itself opened the real WebSocket to
 Microsoft directly — bypassing Optimus entirely, the same precedent
 `kinds::copilot_discovery` already sets for GitHub Copilot's discovery leg —
-that's mechanically buildable with no new dependency on Optimus. But the
-discovery leg could bypass Optimus safely only because it's low-stakes
-account metadata, nothing worth policy-inspecting. M365 Copilot's chat
-content is the opposite: it's exactly the traffic worth inspecting — the
-actual prompts and completions, the real DLP-relevant material. Bypassing
-Optimus to make the mechanics work would mean building real interception
-while discarding the one property that made it worth building.
+that's mechanically buildable today, with no new dependency on Optimus at
+all. But the discovery leg could bypass Optimus safely only because it's
+low-stakes account metadata, nothing worth policy-inspecting. M365 Copilot's
+chat content is the opposite: it's exactly the traffic worth inspecting —
+the actual prompts and completions, the real DLP-relevant material.
+Bypassing Optimus gets the mechanism working fastest, at the cost of
+discarding the one property that made building it worthwhile in the first
+place. It's the fallback if the Optimus investment isn't prioritized, not a
+substitute for it.
 
-**Net**: neither design gets past Reason 2 without giving something else up
-— either the fidelity of what's actually being observed (Design A), or a
-dependency on new capability in a system this codebase doesn't own (Design
-B, in its honest form), or the policy-enforcement point of the whole exercise
-(Design B's bypass variant). And all three still sit behind Reason 1, which
-none of this touches — this section answers "if we already had the traffic,
-could we route it through Optimus," not "how do we get the traffic."
+**Net**: Design A trades away fidelity (a different, likely-degraded
+backend). Design B, done properly, trades away nothing — but costs real,
+cross-team engineering time in a system outside this repo. Design B's
+bypass variant is available now, cheaply, at the cost of the policy
+enforcement this was supposed to provide. None of the three is blocked by
+anything Microsoft controls — the constraint is entirely about what this
+org is willing to invest, and where. All three still sit behind Reason 1,
+which nothing in this section touches — this section answers "if we already
+had the traffic, could we route it through Optimus," not "how do we get the
+traffic."
 
 ## Net assessment
 
 | | GitHub Copilot (VS Code) | Microsoft 365 Copilot |
 |---|---|---|
-| Redirect lever | `github-enterprise.uri` — real, but gated by the `enterprise: true` account flag (§3.1 of the VS Code write-up) | **None found** — fixed, wildcarded, tenant-wide domain |
+| Redirect lever | `github-enterprise.uri` — real, but gated by the `enterprise: true` account flag (§3.1 of the VS Code write-up) | No app-level config lever. A network-layer path exists (DNS-wildcard redirect + dynamic cert minting) at the cost of terminating TLS on all M365 traffic under the wildcard, not just Copilot |
 | Traffic shape | HTTP request/response — matches existing relay infrastructure | Persistent SignalR-over-WebSocket (confirmed protocol detail, not just connectivity) — a different shape than anything built so far, with an unconfirmed long-polling fallback that could change this |
 | Documented interception risk | None found for the mechanism itself | Microsoft explicitly documents TLS inspection causing failures on this traffic |
-| Verdict | Mechanism proven correct with real traffic; account-gate is the one open, hard-to-close gap | Closed — no known foothold, and a second, harder engineering problem (or a different, unconfirmed easier one, if the fallback transport is real) sits behind where the first one would have been |
+| Path to closing it | Mechanism proven correct with real traffic; account-gate is the one open, hard-to-close gap — no further engineering needed, just a real enterprise-flagged account | Two real, buildable paths, each with a named cost: DNS+cert redirect (blast-radius/reliability risk across shared M365 traffic) for Reason 1, and Optimus gaining SignalR-tunnel capability (cross-team engineering investment in a system outside this repo) for Reason 2 — or bypass Optimus for Reason 2 cheaply, at the cost of losing policy enforcement on exactly the traffic that matters |
 
-**Recommendation**: don't pursue this further under the current approach.
-The VS Code Copilot Chat case at least has one concrete, real mechanism with
-a single named gap (the `enterprise: true` account flag) worth watching for a
-future closure. Microsoft 365 Copilot has no comparable foothold at all —
-closing Reason 1 would require Microsoft shipping some new,
-currently-nonexistent redirect capability, and closing Reason 2 would still
-require solving a WebSocket-relay engineering problem this codebase has never
-attempted. Revisit only if Microsoft's own network requirements documentation
-changes to describe a real, addressable, redirectable endpoint for Copilot
-traffic specifically.
+**Recommendation**: treat this as a resourcing and prioritization decision,
+not a closed door. The VS Code Copilot Chat case remains the nearer-term,
+lower-cost opportunity — one concrete, already-built mechanism with a single
+named gap (the `enterprise: true` account flag) worth watching for a future
+closure, no new infrastructure required. Microsoft 365 Copilot is a real,
+second-tier candidate behind it: pursuing it means deliberately accepting
+the Reason 1 blast-radius increase (decrypting and re-terminating TLS for
+all of SharePoint/OneDrive/Teams/Outlook sharing the wildcard, not just
+Copilot) and either committing real cross-team engineering time to add
+SignalR-tunnel capability to Optimus, or accepting the cheaper bypass
+variant's loss of policy enforcement on the traffic that's the whole point.
+Worth scoping as an actual proposal to whoever owns Optimus if there's
+product appetite for it — not something to build unilaterally inside
+`ai-protect`/`ai-gateway` alone, and not something to write off as
+impossible.
 
 ## Sources
 

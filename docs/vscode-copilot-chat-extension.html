@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VS Code's built-in GitHub Copilot Chat extension</title>
+<style>
+body {
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  color: #1a1a1a;
+  line-height: 1.6;
+  font-size: 16px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+h1 { font-size: 26px; border-bottom: 3px solid #2c6b58; padding-bottom: 10px; color: #16352c; }
+h2 { font-size: 19px; color: #1f5445; margin-top: 36px; border-bottom: 1px solid #d8d2c2; padding-bottom: 6px; }
+h3 { font-size: 15px; color: #2c6b58; margin-top: 26px; }
+h4 { font-size: 14px; color: #2c6b58; margin-top: 22px; }
+p { margin: 10px 0; }
+a { color: #1f5445; text-decoration: none; border-bottom: 1px dotted #1f5445; }
+code {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+  background: #f1efe6;
+  padding: 2px 5px;
+  border-radius: 3px;
+  color: #5a3d1f;
+}
+pre {
+  background: #f6f4ec;
+  border: 1px solid #e2ddc9;
+  border-radius: 6px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+pre code { background: none; padding: 0; color: #1a1a1a; }
+table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 14px; }
+th, td { border: 1px solid #d8d2c2; padding: 8px 12px; text-align: left; vertical-align: top; }
+th { background: #e1eae3; color: #16352c; font-weight: 600; }
+tr:nth-child(even) td { background: #faf9f5; }
+blockquote { border-left: 3px solid #c98a3e; margin: 12px 0; padding: 6px 16px; background: #f9f1e4; color: #4a3820; }
+hr { border: none; border-top: 1px solid #d8d2c2; margin: 28px 0; }
+ul, ol { padding-left: 24px; }
+li { margin: 4px 0; }
+strong { color: #16352c; }
+del { color: #8a8474; }
+</style>
+</head>
+<body>
+<h1>VS Code's built-in GitHub Copilot Chat extension — interception design and shipped implementation</h1>
+<p>This doc is the single record for one specific surface: the <strong>Copilot Chat
+extension built into VS Code</strong> (<code>github.copilot-chat</code> / <code>github.copilot</code>) —
+distinct from the standalone <code>copilot</code> CLI (<code>github/copilot-cli</code>, npm
+<code>@github/copilot</code>), which our <code>ai-gateway/agent-manager/src/agents/copilot.rs</code>
+adapter already brokers today, and distinct from the separate desktop
+<strong>GitHub Copilot app</strong> (<code>github.com/features/ai/github-app</code>), which has its
+own investigation elsewhere. Split out from the broader
+<code>copilot-desktop-apps-coverage-gap.html</code> write-up because this surface now has
+a resolved mechanism, a real shipped implementation, and a known open risk —
+enough to stand on its own.</p>
+<p><strong>Where this stands, as of 2026-09-20</strong>: the interception mechanism is
+source-confirmed and live-tested end to end against real, authenticated
+traffic (a real model reply round-tripped through the relay). It is now
+<strong>wired into the real <code>ai-protect</code>/<code>ai-gateway</code> product</strong>, shipped
+<code>enabled: true</code>. The one open gap — whether the mechanism's activating
+condition (<code>enterprise: true</code> on the account's auth provider) is ever true
+for a real customer account — is unresolved and explicitly accepted as a
+known risk, not silently glossed over.</p>
+<h2>1. Why this is a separate problem from the CLI</h2>
+<p><code>ai-gateway/agent-manager/src/agents/vscode.rs</code> sets <code>llm: LlmRouting::None</code>
+and is dormant (<code>"vscode"</code> isn't in <code>ENABLED_AGENTS</code>) — deliberately, and
+correctly. Discovery maps a <code>vscode</code> session to the <code>copilot</code> broker identity
+purely for attribution ("Copilot Chat is the agent behind the editor," per its
+own doc comment), but <code>copilot.rs</code>'s actual redirect mechanism writes to
+<code>~/.copilot/mcp-config.json</code> / <code>~/.copilot/settings.json</code> — the standalone
+CLI's home directory, which the VS Code extension never reads. The extension
+runs inside VS Code's own process, configured through VS Code's own
+<code>settings.json</code>, with its own independent code path for finding its API host.
+Nothing about brokering the CLI carries over to it.</p>
+<h2>2. Mechanisms ruled out before this one</h2>
+<p>Three independent leads were checked and closed, in order, before the
+mechanism below was found. Recorded briefly here since each answers "why not
+just do X":</p>
+<ul>
+<li><strong>The extension's own debug settings</strong>
+  (<code>github.copilot.advanced.debug.overrideProxyUrl</code> / <code>overrideCapiUrl</code>) exist,
+  but a confirmed
+  <a href="https://github.com/microsoft/vscode-copilot-release/issues/7802">GitHub issue</a>
+  shows <code>github.copilot-chat</code> <strong>ignores them entirely</strong> — only the older,
+  separate inline-completion extension (<code>github.copilot</code>) honors them.</li>
+<li><strong>The generic <code>HTTPS_PROXY</code>/<code>NODE_EXTRA_CA_CERTS</code> mechanism</strong> every other
+  adapter in this codebase relies on: GitHub's own docs document it as
+  supported, but real user reports say the extension ignores
+  <code>NODE_EXTRA_CA_CERTS</code> outright, and checking Microsoft's own current design
+  doc directly (<code>agentHost/node/claude/CONTEXT.md</code>, filed under "Deferred for
+  later phases") confirms proxy support for this traffic <strong>is not yet
+  implemented</strong> — the one real call site for the extension's proxy-env helper
+  wraps only the managed-settings fetch, not chat/completion traffic.</li>
+<li><strong>BYOK</strong> (<code>chatLanguageModels.json</code>) is strictly additive — it registers a
+  new selectable model next to Copilot's own in the model picker, requiring
+  manual/pinned selection. It cannot redirect or intercept Copilot's own
+  default traffic.</li>
+</ul>
+<h2>3. The mechanism that works: <code>github-enterprise.uri</code> CAPI-discovery hijack</h2>
+<p>Traced end to end against the real, current <code>microsoft/vscode</code> source
+(<code>src/vs/platform/agentHost/</code>, not a guess or a summarized doc):</p>
+<ol>
+<li><code>github-enterprise.uri</code> (<code>product.json</code>'s <code>defaultChatAgent.providerUriSetting</code>,
+   read in <code>defaultAccount.ts</code>'s <code>getEnterpriseUrl()</code>) is parsed as a <code>URL</code>.</li>
+<li>Its <code>protocol</code>/<code>hostname</code>/<code>port</code> build a discovery request:
+   <code>${protocol}//api.${hostname}${port}/copilot_internal/user</code>. A consumer
+   account with no enterprise URI set calls the same path against the fixed
+   <code>https://api.github.com/copilot_internal/user</code> instead.</li>
+<li>That response's <strong><code>endpoints.api</code></strong> field becomes the CAPI host used for
+   <em>every</em> subsequent chat/completion call. A code comment in
+   <code>githubEndpoints.ts</code> states the key property directly: <code>endpoints.api</code>
+   <em>"is not derivable from the enterprise URI"</em> — the client trusts whatever
+   the discovery response says, verbatim, with no independent validation.</li>
+</ol>
+<p>That last property is what makes the hijack possible: point
+<code>github-enterprise.uri</code> at a local listener, answer (or relay, rewriting only
+that one field) the discovery call, and every later CAPI request the
+extension makes goes to that listener instead.</p>
+<pre><code>VS Code (Copilot Chat)        our local listener              real api.github.com        real CAPI backend
+        |                          |                                  |                          |
+        |-- GET /copilot_internal/user --&gt;|                            |                          |
+        |                          |-- relay real request (real auth) -------------&gt;|              |
+        |                          |&lt;---------------- real 200 response ------------|              |
+        |                          |                            |                          |
+        |                    [ rewrite ONLY endpoints.api to point back    |                          |
+        |                      at our listener; pass everything else       |                          |
+        |                      through unmodified ]                        |                          |
+        |&lt;-- 200 { endpoints: { api: &quot;http://127.0.0.1:&lt;port&gt;&quot; } } |                          |
+        |                          |                            |                          |
+        |----------------------------- POST /chat/completions --&gt;|                          |
+        |                          |-- relay/observe, forward to real CAPI ---------------------------&gt;|
+        |                          |&lt;----------------------------------------------- 200 { completion } |
+        |&lt;---------------- 200 { completion } -------------------|                          |
+</code></pre>
+<p><strong>Note on this diagram</strong>: only the first hop (<code>GET /copilot_internal/user</code>,
+the discovery call) is actually a direct local call in the shipped listener.
+The second hop (<code>POST /chat/completions</code>, drawn above as "relay/observe,
+forward to real CAPI") is simplified for this diagram — the real listener
+does not call CAPI directly at all. §4 below covers why: it tunnels that leg
+through Optimus instead, for the same policy enforcement every other
+brokered agent gets. Don't read this diagram as the shipped shape; it's the
+mechanism in isolation, before Optimus enters the picture.</p>
+<p><strong>A known, separate hole in the same mechanism</strong>: GitHub's hosted MCP server
+uses a second, independent hardcoded literal
+(<code>GITHUB_DOT_COM_COPILOT_API_BASE_URI = 'https://api.githubcopilot.com'</code>) in
+<code>githubMcpDefinitionProvider.ts</code>, <strong>not</strong> derived from <code>endpoints.api</code>.
+Redirecting CAPI discovery leaves that traffic (if the user has GitHub's
+hosted MCP server configured) going to the real host, untouched. "Hijack all
+inference calls" overstates it — this is a CAPI-chat/completion-specific
+lever.</p>
+<h3>3.1. The account-gate finding: the central limitation</h3>
+<p>Live-tested 2026-09-18 against a real, authenticated, actively-used GitHub
+account, with real test tooling (<code>ai-gateway-simple</code> relaying + rewriting
+<code>endpoints.api</code>, <code>ai-protect-simple</code> writing <code>github-enterprise.uri</code> into the
+real <code>settings.json</code>). Result across two attempts (a cold VS Code restart,
+then a full Copilot sign-out/sign-in): <strong>zero requests reached the listener
+either time.</strong> Chat worked completely normally, on whichever path it already
+had.</p>
+<p>Traced to the exact source-level reason, not left as a guess:</p>
+<pre><code class="language-typescript">private getEntitlementUrl(): string | undefined {
+    if (this.getDefaultAccountAuthenticationProvider().enterprise) {
+        // ... only here does the enterprise-derived URL ever get used ...
+    }
+    return this.defaultAccountConfig.entitlementUrl; // the hardcoded api.github.com default
+}
+
+getDefaultAccountAuthenticationProvider(): IDefaultAccountAuthenticationProvider {
+    if (this.defaultAccountProvider) {
+        return this.defaultAccountProvider.getDefaultAccountAuthenticationProvider();
+    }
+    return { ...this.defaultAccountConfig.authenticationProvider.default, enterprise: false };
+}
+</code></pre>
+<p>For an ordinary VS Code install with no special <code>defaultAccountProvider</code>
+registered — the normal case, for every consumer sign-in — <strong><code>enterprise</code> is
+a hardcoded <code>false</code></strong>. <code>github-enterprise.uri</code> is never even read for this
+decision. Not caching, not session staleness — a structural gate a
+<code>settings.json</code> value cannot flip on its own. Reaching it for real needs a
+genuinely different, deeper mechanism (a distinct <code>IDefaultAccountProvider</code>,
+plausibly tied to signing in through an actual GitHub Enterprise-flavored
+flow) that no config write reaches.</p>
+<h3>3.2. Proving the mechanism anyway: <code>vscode-enterprise-simple</code></h3>
+<p>Built specifically to test the <em>relay-and-rewrite mechanism</em> independent of
+the account-gate above, by reproducing exactly what <code>defaultAccount.ts</code> does
+when an account <strong>is</strong> flagged <code>enterprise: true</code>: derive the discovery URL
+from <code>github-enterprise.uri</code> with the same <code>api.&lt;hostname&gt;</code> formula, call it,
+then make a real CAPI request.</p>
+<p>Run with a real, working Copilot bearer token (obtained via the genuine
+GitHub OAuth device flow — the same mechanism editor extensions use, run
+interactively with real user authorization; <code>ai-gateway/scripts/get_copilot_token.sh</code>
+and <code>copilot_chat_call.sh</code>, <code>token.txt</code> itself gitignored):</p>
+<ul>
+<li><strong>Step 1 (discovery)</strong>: <code>401 Bad credentials</code> — expected. This bearer token
+  is the Copilot-specific one from the <code>/copilot_internal/v2/token</code> exchange,
+  not the raw GitHub OAuth token discovery wants. A known token-type
+  mismatch, not a failure of the mechanism.</li>
+<li><strong>Step 2</strong>: a genuine, authenticated <code>GET {gateway_url}/models</code> call —
+  relayed to the real <code>api.githubcopilot.com</code> and back: <code>200 OK</code>, a real 52KB
+  model list. A listing endpoint, not inference — worth being precise about,
+  since it doesn't by itself prove a real completion works.</li>
+<li><strong>Step 3 (the actual proof)</strong>: a real <code>POST {gateway_url}/chat/completions</code>
+  — relayed the same way: <strong><code>200 OK</code>, a genuine response from a real model</strong>
+  (<code>gpt-4o-2024-11-20</code> replied <em>"Hello!"</em> to the test prompt, with real token
+  accounting — <code>prompt_tokens: 14</code>, <code>completion_tokens: 2</code>). An actual
+  inference call, generated by a real model, round-tripped intact through the
+  relay.</li>
+</ul>
+<p><strong>Net result</strong>: the relay-and-rewrite mechanism is proven correct with real,
+authenticated traffic, not just structurally plausible. The one remaining gap
+is exactly the account-gate one above — getting a real account's
+authentication provider flagged <code>enterprise: true</code> in the first place, which
+no config write reaches. If that gap is ever closed (a genuine GHE-flavored
+sign-in, or a different <code>IDefaultAccountProvider</code>), everything downstream of
+it is now known to work.</p>
+<p><strong>A narrower, separate gap worth stating plainly</strong>: "proven correct" above
+covers the CAPI leg (<code>/models</code>, <code>/chat/completions</code>), not the discovery leg's
+own rewrite. Step 1's <code>401</code> means the discovery call never got far enough to
+return a <code>200</code> with a real <code>endpoints.api</code> field — so the one thing this
+mechanism is actually named for (rewriting <code>endpoints.api</code> to point back at
+the listener) was never observed happening against a real response. What was
+live-tested on that leg is narrower than it sounds: the relay correctly
+forwards the request and passes a failure response through untouched when
+there's nothing to rewrite. That the rewrite itself works is established by
+reading <code>githubEndpoints.ts</code> and the two <code>copilotApiService.test.ts</code> tests
+(§3), not by watching it happen. Getting a real <code>200</code> here would need the
+<em>other</em> token — a raw GitHub OAuth token, not the Copilot-specific one either
+test tool acquires — which is a different OAuth flow neither script obtains
+today.</p>
+<h4>3.2.1. Full sequence, as actually run — every object, every message</h4>
+<pre><code>Legend:
+  PS = ai-protect-simple        GH = api.github.com (real)
+  GS = ai-gateway-simple        CP = api.githubcopilot.com (real, CAPI)
+  ST = settings.json (real VS Code file)
+  VS = vscode-enterprise-simple
+
+    PS          GS          ST          VS          GH          CP
+    |           |           |           |           |           |
+ (1)| create .broker-file-simple.zip    |           |           |
+    |-----------|           |           |           |           |
+    |           |(2) read .broker-file-simple.zip    |           |
+    |&lt;----------|           |           |           |           |
+    |           |(3) bind 127.0.0.1:&lt;port&gt;            |           |
+    |           |--+        |           |           |           |
+    |           |&lt;-+        |           |           |           |
+    |           |(4) write .status-file-simple.zip   |           |
+    |           |  { github-enterprise.uri: gateway } |           |
+    |&lt;----------|           |           |           |           |
+ (5)| read .status-file-simple.zip      |           |           |
+    |--+        |           |           |           |           |
+    |&lt;-+        |           |           |           |           |
+ (6)| JSON-merge github-enterprise.uri  |           |           |
+    |------------------------&gt;|         |           |           |
+    |= = = = = = = = = phase boundary = = = = = = = = = = = = = =|
+    |           |           |(7) read github-enterprise.uri      |
+    |           |           |&lt;----------|           |           |
+    |           |           |(8) derive discovery URL             |
+    |           |           |    api.&lt;host&gt;/copilot_internal/user |
+    |           |           |         --+           |           |
+    |           |           |         &lt;-+           |           |
+    |           |(9) GET /copilot_internal/user (Bearer: copilot token)
+    |           |&lt;----------------------|           |           |
+    |           |(10) relay GET /copilot_internal/user           |
+    |           |------------------------------------&gt;|           |
+    |           |(11) 401 {&quot;message&quot;:&quot;Bad credentials&quot;}          |
+    |           |&lt;------------------------------------|           |
+    |           |(12) relay 401 (no endpoints.api — pass through as-is)
+    |           |-----------------------&gt;|           |           |
+    |           |           |(13) fall back: use gateway_url directly
+    |           |           |         --+           |           |
+    |           |           |         &lt;-+           |           |
+    |           |(14) GET /models (Bearer: copilot token)         |
+    |           |&lt;----------------------|           |           |
+    |           |(15) relay GET /models |           |           |
+    |           |-----------------------------------------------&gt;|
+    |           |(16) 200 OK  {&quot;data&quot;:[{&quot;family&quot;:&quot;claude-fable-5.1&quot;,...}]}
+    |           |&lt;-----------------------------------------------|
+    |           |(17) relay 200 OK + real model list              |
+    |           |-----------------------&gt;|           |           |
+    |           |(18) POST /chat/completions {model, messages}    |
+    |           |&lt;----------------------|           |           |
+    |           |(19) relay POST /chat/completions      |           |
+    |           |-----------------------------------------------&gt;|
+    |           |(20) 200 OK {&quot;choices&quot;:[{&quot;message&quot;:{&quot;content&quot;:&quot;Hello!&quot;}}]}
+    |           |&lt;-----------------------------------------------|
+    |           |(21) relay 200 OK + real model reply    |           |
+    |           |-----------------------&gt;|           |           |
+</code></pre>
+<ol>
+<li><code>ai-protect-simple</code> writes <code>.broker-file-simple.zip</code> (a minimal, real
+   <code>BrokerFile</code> — one agent, <code>vscode-copilot</code>).</li>
+<li><code>ai-gateway-simple</code> reads it on startup.</li>
+<li><code>ai-gateway-simple</code> binds <code>127.0.0.1:&lt;ephemeral port&gt;</code>.</li>
+<li>Writes <code>.status-file-simple.zip</code> — a real <code>StatusFile</code> naming the
+   resolved <code>github-enterprise.uri</code> in a <code>ConfigDelta</code>.
+5–6. <code>ai-protect-simple</code>'s <code>JsonWatcher</code> picks up the change and
+   JSON-merges the key into the real <code>settings.json</code>, backing it up first.
+7–8. <code>vscode-enterprise-simple</code> reads <code>github-enterprise.uri</code> back out of
+   <code>settings.json</code> and derives the discovery URL with VS Code's own exact
+   formula.
+9–12. Discovery call relayed to the real <code>api.github.com</code>; correctly gets
+   <code>401</code> — relayed back untouched since there's no <code>endpoints.api</code> to
+   rewrite.</li>
+<li>Client falls back to the gateway URL directly for the second hop,
+   exactly as it would if discovery had succeeded and named this same
+   gateway.
+14–17. A real, authenticated <code>GET /models</code> call relays to the real
+   <code>api.githubcopilot.com</code> and back — genuine <code>200 OK</code>, but a listing, not
+   inference.
+18–21. The actual proof: a real <code>POST /chat/completions</code> relays the same
+   way — a genuine model (<code>gpt-4o-2024-11-20</code>) generates a real reply
+   ("Hello!"), which comes back through the gateway intact.</li>
+</ol>
+<h2>4. Architecture problem found when wiring this into the real product</h2>
+<p>The test tools above (<code>ai-gateway-simple</code>) make direct, real outbound HTTPS
+calls — that's how they could relay to <code>api.github.com</code> and
+<code>api.githubcopilot.com</code> themselves. The <strong>real</strong> <code>ai-gateway</code> listener does
+not work that way: <code>Gateway::dial()</code> always tunnels through the configured
+Zscaler cloud gateway ("Optimus"), never a direct outbound call. A
+<code>destination</code>/<code>upstream</code> field is a <em>label</em> — a <code>Host</code>/<code>:authority</code> value
+telling Optimus where to route the request server-side — never resolved,
+never dialled locally. Porting the test-tool mechanism verbatim into the real
+listener would have meant either bypassing Optimus for <strong>all</strong> Copilot
+traffic (losing policy enforcement on the actual LLM calls) or somehow
+tunneling the <em>discovery</em> call through Optimus too (pointless — it's account
+entitlement metadata, not agent traffic that needs inspection).</p>
+<p><strong>Resolved design</strong>: the discovery leg (<code>/copilot_internal/user</code>) is answered
+entirely <strong>locally</strong> — one real outbound call to <code>api.github.com</code>, then a
+rewrite of the single <code>endpoints.api</code> field — deliberately bypassing Optimus.
+Every other request (the real chat/completions traffic) still tunnels
+through Optimus via the existing, unmodified relay path, exactly like every
+other agent this codebase brokers. Both legs share <strong>one listener, one port</strong>
+— distinguished purely by request path.</p>
+<pre><code>                         ┌─────────────────────────────┐
+ VS Code Copilot Chat ──▶│  ai-gateway listener (single │
+                         │  port, path-dispatched)      │
+                         │                               │
+   /copilot_internal/user│──▶ real, local call ──▶ api.github.com
+                         │    (rewrite endpoints.api)    │
+                         │                               │
+   /chat/completions,    │──▶ Optimus tunnel ──▶ policy ──▶ real CAPI
+   /models, etc.         │    (unmodified forward())     │
+                         └─────────────────────────────┘
+</code></pre>
+<h2>5. Shipped implementation (real <code>ai-protect</code>/<code>ai-gateway</code>, commit <code>a47e68f0</code>)</h2>
+<p>Landed on branch <code>main-08272026-vscode-copilot</code>, 2026-09-20, across three
+real crates:</p>
+<ul>
+<li><strong><code>LlmRouting::CopilotDiscoveryRelay { upstream, enabled }</code></strong>
+  (<code>ai-gateway/agent-manager/src/agents/mod.rs</code>) — a new routing variant,
+  deliberately minimal (mirrors <code>BaseUrl</code>'s shape) since the config-render
+  side reuses the existing <code>Llm::ProxyPath</code> shape unmodified.</li>
+<li><strong><code>ListenerTransport::CopilotDiscoveryRelay</code></strong>
+  (<code>ai-gateway/agent-manager/src/agent.rs</code>) — plaintext, like <code>Http</code> (no CA
+  needed), dispatched to a distinct listener kind.
+  <code>Spec::listener_transport()</code> <strong>derives</strong> this automatically from the
+  agent's declared <code>LlmRouting</code> variant rather than requiring a separate
+  per-agent override, so the two cannot drift apart.</li>
+<li><strong><code>listener::kinds::copilot_discovery</code></strong>
+  (<code>ai-gateway/listener/src/kinds/copilot_discovery.rs</code>) — the actual
+  listener logic. Checks whether the request path is
+  <code>/copilot_internal/user</code>; if so, makes the one real outbound HTTPS call
+  (via <code>hyper-rustls</code> + <code>hyper-util</code>'s <code>client-legacy</code>, pinned to the same
+  <code>aws-lc-rs</code> crypto backend this crate already standardizes on) and
+  rewrites the <code>endpoints.api</code> JSON pointer to the listener's own base URL;
+  otherwise falls through to the exact same <code>forward()</code>/Optimus-tunnel
+  primitive every other <code>BaseUrl</code> agent uses.</li>
+<li><strong>The <code>vscode-copilot</code> <code>AgentSpec</code></strong>
+  (<code>ai-gateway/agent-manager/src/agents/vscode_copilot.rs</code>) — registered and
+  <strong>enabled</strong> in <code>ENABLED_AGENTS</code>, upstream <code>api.githubcopilot.com</code>, hints on
+  the <code>code</code> command, VS Code app bundles, and the
+  <code>github.copilot-chat</code>/<code>github.copilot</code> extensions.</li>
+<li><strong>The <code>agent_configs.rs</code> registry entry</strong>
+  (<code>ai-gateway/util/src/agent_configs.rs</code>) — the root <code>ai-warden</code> daemon's own
+  separate config-delivery registry (consumed directly by
+  <code>src/subscribers/ai_broker_launch.rs</code>), pointing at the real per-OS VS Code
+  <code>settings.json</code> and rendering <code>github-enterprise.uri</code> via the existing
+  <code>Llm::ProxyPath</code> shape.</li>
+</ul>
+<p>Verified with a full <code>cargo test --workspace</code> pass (3989 passed; only the two
+pre-existing, environment-specific failures remain — a real <code>ai-protect</code>
+daemon already running on the dev machine, unrelated to this change).</p>
+<h2>6. The open risk, shipped anyway by explicit product decision</h2>
+<p>The mechanism is confirmed correct end to end with real traffic. What is
+<strong>not</strong> independently verified is whether the activating condition — an
+account whose authentication provider is flagged <code>enterprise: true</code> — is
+ever true for any real customer account. Every live test so far has been
+against either a real consumer account (where the mechanism correctly never
+activates) or a synthetic reproduction of the enterprise code path
+(<code>vscode-enterprise-simple</code>), never a genuine GitHub Enterprise-flavored
+sign-in. That gap is real and currently open.</p>
+<p>Given that, the default recommendation would be to ship this disabled until
+a real enterprise-flagged account can be tested against it. <strong>The explicit
+product decision, made deliberately, was the opposite: build it and enable
+it now</strong> (<code>enabled: true</code> in the shipped <code>AgentSpec</code>) rather than gating it
+behind a flag pending that verification. The doc comment on
+<code>vscode_copilot.rs</code> states this plainly, so the decision is legible to
+whoever reads the code next, not just this write-up.</p>
+<h2>7. Testing this on a real machine</h2>
+<p><code>vscode-enterprise-simple</code> needs a real Copilot bearer token in its
+<code>Authorization</code> header for every call — regardless of whether the real
+<code>ai-protect</code>/<code>ai-gateway</code> pair is running. Two ways to get one:</p>
+<ul>
+<li>Run <code>ai-gateway/scripts/get_copilot_token.sh</code> (real GitHub OAuth device
+  flow, needs bash — WSL or Git Bash on Windows) wherever is convenient, then
+  copy the resulting <code>token.txt</code> to wherever <code>vscode-enterprise-simple</code> will
+  run (<code>--token-file</code> accepts any path).</li>
+<li>Reuse an already-minted <code>token.txt</code>, provided it's still within its ~24h
+  validity window.</li>
+</ul>
+<p>For the mechanism itself to have anything to relay against, the real
+<code>ai-protect</code>/<code>ai-gateway</code> daemon needs to already be enrolled, running, and
+have detected VS Code + the Copilot Chat extension — i.e. it must have
+written <code>github-enterprise.uri</code> into the real <code>settings.json</code> <strong>before</strong>
+<code>vscode-enterprise-simple</code> is run without a <code>--gateway-url</code> override.</p>
+<h2>8. Alternatives considered, and why this one was chosen</h2>
+<ul>
+<li><strong>Fork the open-source extension</strong> (<code>microsoft/vscode</code>, MIT) for
+  certainty instead of hoping the vendor binary honors a setting. Rejected
+  for now: replaces a vendor binary rather than writing a config delta into
+  one (a first for this codebase's adapter model), needs ongoing rebasing
+  onto a fast-moving upstream, and carries a distribution/policy cost well
+  beyond anything else in this doc.</li>
+<li><strong>Block instead of intercept</strong> (<code>chat.disableAIFeatures: true</code>, or the
+  more durable <code>AllowedExtensions</code> registry policy on Windows) — a real,
+  working, documented lever today, but it answers a different question
+  ("stop Copilot Chat from running at all") than the one this doc is about
+  ("observe/relay its traffic").</li>
+<li><strong>Replace with another extension</strong> (Continue, the Claude Code extension) —
+  neither is a clean single-swap replacement; Continue is proxy-aware and
+  covers autocomplete, Claude Code is already a proven, brokered agent in
+  this product but has no autocomplete surface. Orthogonal to intercepting
+  Copilot Chat itself, not a substitute for it.</li>
+</ul>
+</body>
+</html>

@@ -60,8 +60,55 @@ documentation
 **Consequence**: there's no equivalent of "write one config key, watch the
 client connect to us instead." Nothing here determines its own destination
 from anything write-accessible. This alone is sufficient to close the
-question — everything below is a second, independent problem that would
-still remain even if this one were somehow solved.
+question via the app-config route — but a config key isn't the only way to
+redirect a connection, so the network-layer alternative below was worked
+through too, before concluding it doesn't actually get around this either.
+
+### A different path to Reason 1: DNS-wildcard redirect + dynamic cert minting
+
+Considered as an alternative once the app-config route above closed: instead
+of asking the *application* to redirect itself, redirect at the *network*
+layer, the same way the resident daemon already can for other agents.
+
+**A hosts file can't do this — wildcards aren't representable there.**
+`/etc/hosts` (and its Windows equivalent) only matches exact hostnames, one
+line per FQDN. Since Microsoft explicitly won't publish the real underlying
+FQDNs behind `*.cloud.microsoft`/`*.office.com` (the same "hyperscale and
+dynamic" reasoning quoted above), there's no static list to enumerate and
+redirect. What this actually needs is a **local DNS resolver that performs
+real wildcard matching** — intercepting any query ending in the relevant
+suffixes and answering with the listener's own address instead of the real
+one. Mechanically doable from a privileged daemon; not a new category of
+capability.
+
+**DNS redirection alone produces a connection, not a working one.** The
+client still expects a certificate for whatever real hostname it thinks it
+dialed. Closing that gap needs the same CA-trust mechanism already used
+elsewhere in this codebase for other agents: mint a leaf certificate for
+whatever hostname/SNI the client actually requested, on the fly, signed by a
+root CA already installed and trusted on the device — the same technique
+`mitmproxy`/Burp use for arbitrary-host interception, not a fixed
+pre-issued cert. Reason 2 found no evidence of certificate pinning on this
+traffic specifically, so this would likely pass ordinary validation —
+*likely*, not confirmed; pinning wasn't ruled out with certainty either.
+
+**The real new cost this introduces: the blast radius is far larger than
+Copilot.** `*.cloud.microsoft` and `*.office.com` aren't Copilot-specific —
+SharePoint, OneDrive, Teams, and Outlook itself share them. A wildcard DNS
+redirect catches all of it. Making this Copilot-only would require the
+listener to inspect the SNI/Host per connection and decide, live, which
+hostnames to actually terminate-and-relay versus which to pass through
+untouched — and Microsoft's own guidance says the opposite of that:
+*"Microsoft doesn't support allowing partial or only selected...URLs within
+`*.cloud.microsoft`... allow the entire domain."* Selective interception
+inside that wildcard is close to the exact shape of thing their docs already
+warn causes the Reason 2 failures — so this path to closing Reason 1 makes
+Reason 2 *more* likely to bite, not less.
+
+**And it only ever closes Reason 1.** Landing the connection on the listener
+doesn't touch the SignalR relay problem underneath it — Design A/B below
+would still be the only two shapes available for what to actually do with
+the traffic once it arrives.
 
 ## Reason 2: the traffic is a persistent SignalR WebSocket, not request/response HTTP — and Microsoft documents interception breaking it
 

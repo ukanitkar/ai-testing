@@ -57,51 +57,115 @@ app-config route — but a config key isn't the only way to redirect a
 connection, so the network-layer alternative below was worked through too,
 before concluding it doesn't actually get around this either.
 
-### A different path to Reason 1: DNS-wildcard redirect + dynamic cert minting
+### Four network-layer alternatives to Reason 1, ranked (internal design discussion, 2026-09-22)
 
-Considered as an alternative once the app-config route above closed: instead
+Considered as alternatives once the app-config route above closed: instead
 of asking the *application* to redirect itself, redirect at the *network*
-layer, the same way the resident daemon already can for other agents.
+layer, the same way the resident daemon already can for other agents. A
+design discussion on 2026-09-22 walked through four such options and ranked
+them — worth recording in that order, since two of the four share a
+disqualifying property and the other two don't.
 
-**A hosts file can't do this — wildcards aren't representable there.**
-`/etc/hosts` (and its Windows equivalent) only matches exact hostnames, one
-line per FQDN. Since Microsoft explicitly won't publish the real underlying
-FQDNs behind `*.cloud.microsoft`/`*.office.com` (the same "hyperscale and
-dynamic" reasoning quoted above), there's no static list to enumerate and
-redirect. What this actually needs is a **local DNS resolver that performs
-real wildcard matching** — intercepting any query ending in the relevant
-suffixes and answering with the listener's own address instead of the real
-one. Mechanically doable from a privileged daemon; not a new category of
-capability.
+**1 & 2 — system-level proxy config, and pure network/route-level
+redirection.** Two mechanically different levers (OS proxy settings vs. IP
+routing/egress tables) that share the same disqualifying property: **neither
+has any notion of which agent is calling.** A system-level proxy rule or a
+route scoped to `*.cloud.microsoft` catches that traffic for *every* process
+on the box — the browser, other Office apps, anything — not just the one
+agent worth instrumenting. Functionally this is the same blast-radius
+problem as the DNS-wildcard approach below, arrived at independently: no
+per-process context means no way to scope the redirect narrower than the
+whole domain.
 
-**DNS redirection alone produces a connection, not a working one.** The
-client still expects a certificate for whatever real hostname it thinks it
-dialed. Closing that gap needs the same CA-trust mechanism already used
-elsewhere in this codebase for other agents: mint a leaf certificate for
-whatever hostname/SNI the client actually requested, on the fly, signed by a
-root CA already installed and trusted on the device — the same technique
-`mitmproxy`/Burp use for arbitrary-host interception, not a fixed
-pre-issued cert. Reason 2 found no evidence of certificate pinning on this
-traffic specifically, so this would likely pass ordinary validation —
-*likely*, not confirmed; pinning wasn't ruled out with certainty either.
+**3 — process-level proxy settings.** Two sub-variants, one already ruled
+out, one genuinely promising:
+- **3A — a base-URL key in the app's own settings file.** Ruled out for the
+  same reason as the rest of Reason 1: no such key exists for this app.
+- **3B — per-process proxy environment/settings, applied only to the
+  target process.** This is **not hypothetical — it's the mechanism this
+  codebase already ships for other agents** (e.g. Claude, via its own
+  `settings.json`-adjacent config). If Word/Excel/Outlook's own networking
+  stack honors an equivalent per-process proxy setting, this closes Reason 1
+  with **zero new engineering** — reusing an existing, working mechanism
+  rather than building anything. **Unresolved and worth checking first**:
+  whether the M365 Copilot client process actually reads such a setting.
+  If it does, this supersedes everything else in this section.
 
-**The real new cost this introduces: the blast radius is far larger than
-Copilot.** `*.cloud.microsoft` and `*.office.com` aren't Copilot-specific —
-SharePoint, OneDrive, Teams, and Outlook itself share them. A wildcard DNS
-redirect catches all of it. Making this Copilot-only would require the
-listener to inspect the SNI/Host per connection and decide, live, which
-hostnames to actually terminate-and-relay versus which to pass through
-untouched — and Microsoft's own guidance says the opposite of that:
-*"Microsoft doesn't support allowing partial or only selected...URLs within
-`*.cloud.microsoft`... allow the entire domain."* Selective interception
-inside that wildcard is close to the exact shape of thing their docs already
-warn causes the Reason 2 failures — so this path to closing Reason 1 makes
-Reason 2 *more* likely to bite, not less.
+**4 — process-aware kernel-level redirect (WFP on Windows, Network
+Extension on macOS).** The general-purpose fallback if 3B doesn't apply:
+hook the OS's socket-open event, resolve the responsible process, look up
+whether it's an agent this codebase brokers, and — only for that
+process — return the local listener's address instead of the real
+destination IP. This is real, not speculative: **`network_egress`
+(documented in `AGENTS.md`) already implements almost exactly this pattern**
+— ETW-based process↔connection correlation, WFP filters at
+`FWPM_LAYER_ALE_AUTH_CONNECT_V4`, scoped per-process via `ALE_APP_ID`, on
+Windows; a `NEFilterDataProvider` system extension on macOS. The gap: that
+existing infrastructure does *observe* and *block*, not *redirect* — Windows
+has a dedicated WFP Connect-Redirect capability for this, but it's new
+callout work, not a rename of what's already there; and macOS's
+`network_egress` leg is documented as **observe-only today**, so redirect
+capability there is new work on both platforms, just built on a technology
+family this codebase already has deep, working expertise in — a materially
+smaller lift than either the DNS-wildcard approach below or a from-scratch
+subsystem.
 
-**And it only ever closes Reason 1.** Landing the connection on the listener
-doesn't touch the SignalR relay problem underneath it — Design A/B below
-would still be the only two shapes available for what to actually do with
-the traffic once it arrives.
+**Sequencing decided in that discussion**: check 3B first, since if it
+applies it's free. If it doesn't, 4 is the fallback — "we can definitely do
+it there" — accepted as more general, cross-platform, and requiring real
+time investment and product buy-in, but not blocked on anything Microsoft
+controls.
+
+### The DNS-wildcard variant, for completeness
+
+A fifth way to get the same "no per-process context" redirect as options 1
+and 2 above, using DNS instead of proxy config or routes: since a hosts file
+can't represent `*.cloud.microsoft`/`*.office.com` as wildcards (Microsoft
+won't publish the real underlying FQDNs — the same "hyperscale and dynamic"
+reasoning quoted above), a **local DNS resolver that performs real wildcard
+matching** would be needed instead — mechanically doable, but subject to the
+exact same blast-radius problem as 1 and 2: it catches SharePoint, OneDrive,
+Teams, and Outlook along with Copilot, since none of them are distinguished
+at the DNS layer. Whichever network-layer redirect is used (1, 2, or this
+one), the client still expects a valid certificate for the real hostname —
+closing that gap needs the same CA-trust mechanism already used elsewhere in
+this codebase: mint a leaf certificate for whatever hostname/SNI was
+requested, on the fly, signed by a root CA already installed and trusted on
+the device (the `mitmproxy`/Burp technique). Reason 2 found no evidence of
+certificate pinning on this traffic, so this would likely pass ordinary
+validation — *likely*, not confirmed.
+
+Superseded by options 3B and 4 above for the reason already stated: this
+approach (and 1, 2) intercepts the whole shared domain with no way to scope
+narrower, and Microsoft's own guidance is explicit that selective
+interception inside `*.cloud.microsoft` is unsupported and close to the
+exact shape of thing that causes the Reason 2 failures below. Recorded here
+for completeness, not as the recommended path.
+
+**Whichever option closes Reason 1, it only ever closes Reason 1.** Landing
+the connection on the listener doesn't touch the SignalR relay problem
+underneath it — Design A/B below would still be the only two shapes
+available for what to actually do with the traffic once it arrives.
+
+### Once captured: forward everything, no per-request filtering — but keep it configurable
+
+A related question worked through in the same discussion: once a process is
+captured (via 3B or 4), should the listener inspect each request/URL and
+only forward the ones that look LLM-related to Optimus, passing everything
+else through directly? **Decided against, for now** — forward everything
+that process sends to Optimus unconditionally, and defer the scale/cost
+question that comes with tunneling non-LLM traffic too. Simpler, and it
+means no new per-request classification logic is needed on top of the
+per-process scoping 3B/4 already provide.
+
+That's a default, not a hard removal of the capability — the classification
+logic (URL/path matching to decide "this looks like Copilot chat traffic")
+is worth building as a **configurable toggle**, off by default, rather than
+leaving no way to turn it on later if the volume/cost tradeoff changes. This
+also keeps Design A's rejected approach (a real path this doc already
+argues against — see above) clearly separate from a legitimate, narrower
+version of the same idea: filtering *which requests get forwarded*, not
+*which backend they're forwarded to*.
 
 ## Reason 2: the traffic is a persistent SignalR WebSocket, not request/response HTTP — and Microsoft documents interception breaking it
 
@@ -190,6 +254,29 @@ would be new, real engineering work, not a reuse of anything that exists
 today — and it would only be worth attempting after Reason 1 is somehow
 solved, which it currently isn't.
 
+### Update, 2026-09-22 — Optimus's own owner states this capability already exists
+
+In an internal design discussion, the person who owns Optimus stated
+directly: *"we have the ability in Optimus to handle that [WSS
+forwarding]... we basically are supporting that, and if there's a bug, we'll
+fix it."* Also confirmed in the same discussion: the triple-JWT auth header
+only needs attaching once, at the initial HTTP `Upgrade` request — once the
+connection is recognized as carrying WSS, the stream itself stays
+authenticated, with no need to re-attach it per frame.
+
+**This is a materially stronger source than anything else cited as
+unconfirmed in this doc** — it's the first-party owner of the system in
+question, not a third party or an inference from documentation. Treated
+accordingly: this substantially raises confidence that Reason 2's cost is
+far lower than "new, cross-team engineering work," possibly close to zero.
+**Still pending the same bar every other claim in this doc is held to**:
+independent confirmation against Optimus's actual code, planned for later
+in this investigation. Until that happens, the rest of this doc's Design
+A/B analysis is left in place below as the fallback reasoning if the claim
+turns out to be narrower than it sounded (e.g. covering some WebSocket
+traffic but not specifically SignalR's framing, or requiring configuration
+this codebase doesn't yet set).
+
 ## Considered: bridge WSS↔HTTP around Optimus's HTTP-only relay
 
 A natural next idea, raised and worked through in this investigation: since
@@ -257,35 +344,34 @@ of discarding the one property that made building it worthwhile in the
 first place. It's the fallback if the Optimus investment isn't prioritized,
 not a substitute for it.
 
-**Net**: Design A trades away fidelity (a different, likely-degraded
-backend). Design B, done properly, trades away nothing — but costs real,
-cross-team engineering time in a system outside this repo. Design B's
-bypass variant is available now, cheaply, at the cost of the policy
-enforcement this was supposed to provide. None of the three is blocked by
-anything Microsoft controls — the constraint is entirely about what this
-org is willing to invest, and where. All three still sit behind Reason 1,
-which nothing in this section touches — this section answers "if we already
-had the traffic, could we route it through Optimus," not "how do we get the
-traffic."
+**Net, updated 2026-09-22**: Design A still trades away fidelity (a
+different, likely-degraded backend) — that hasn't changed. Design B's cost
+picture has: Optimus's own owner states the SignalR-tunnel capability this
+section calls "a legitimate cross-team engineering proposal" may already
+exist, pending independent code-level confirmation (see the update under
+Reason 2 above). If confirmed, Design B stops being a proposal and starts
+being a matter of correctly wiring an existing capability. Design B's bypass
+variant remains available regardless, cheaply, at the cost of the policy
+enforcement this was supposed to provide. All of this still sits behind
+Reason 1, which nothing in this section touches.
 
 ## Net assessment
 
 | Blocker | Status | Path forward, and its cost |
 |---|---|---|
-| **Reason 1** — no redirect lever | No app-level config lever exists; the endpoint is a fixed, wildcarded, tenant-wide domain | DNS-wildcard redirect + dynamic cert minting — mechanically doable, at the cost of terminating TLS on *all* M365 traffic sharing the wildcard (SharePoint, OneDrive, Teams, Outlook), not just Copilot |
-| **Reason 2** — persistent SignalR WebSocket | Confirmed protocol-level mismatch with this codebase's HTTP-only relay infrastructure; Microsoft documents naive TLS inspection breaking this traffic | Optimus gaining SignalR-tunnel capability — a real, cross-team engineering investment in a system outside this repo; or bypass Optimus entirely, cheaply, at the cost of losing policy enforcement on exactly the traffic that matters |
+| **Reason 1** — no redirect lever | No app-level config lever exists; the endpoint is a fixed, wildcarded, tenant-wide domain | Ranked in priority order above: **3B** (per-process proxy settings, reusing an existing mechanism) closes this for free *if* the M365 client honors it — unconfirmed, check first. **4** (process-aware WFP/Network-Extension redirect) is the general fallback, buildable on infrastructure this codebase already has (`network_egress`), with new work needed on both platforms for the redirect action specifically. Options 1/2/DNS-wildcard all share the same disqualifying blast-radius problem and are superseded by 3B/4. Detailed design for 3B and 4 to follow in their own docs. |
+| **Reason 2** — persistent SignalR WebSocket | Confirmed protocol-level mismatch with this codebase's HTTP-only relay infrastructure; Microsoft documents naive TLS inspection breaking this traffic | **Update 2026-09-22**: Optimus's own owner states this capability already exists ("we basically are supporting that") — pending independent code confirmation. If confirmed, cost drops from "new cross-team engineering" to "verify and wire up." Design A (different backend) and the policy-losing bypass variant remain as fallbacks if the claim doesn't hold as stated. |
 
 **Recommendation**: treat this as a resourcing and prioritization decision,
-not a closed door. Pursuing it means deliberately accepting the Reason 1
-blast-radius increase (decrypting and re-terminating TLS for all of
-SharePoint/OneDrive/Teams/Outlook sharing the wildcard, not just Copilot)
-and either committing real cross-team engineering time to add
-SignalR-tunnel capability to Optimus, or accepting the cheaper bypass
-variant's loss of policy enforcement on the traffic that's the whole point.
-Worth scoping as an actual proposal to whoever owns Optimus if there's
-product appetite for it — not something to build unilaterally inside
-`ai-protect`/`ai-gateway` alone, and not something to write off as
-impossible.
+not a closed door — and, as of 2026-09-22, a more promising one than the
+previous version of this doc concluded. Reason 1 has a real chance of
+closing for free via 3B, with the WFP/Network-Extension path (4) as a solid,
+buildable fallback reusing existing infrastructure rather than a from-scratch
+subsystem. Reason 2's cost may already be paid, per Optimus's own owner —
+pending the same code-level verification this doc holds every other claim
+to. Next steps: confirm 3B's applicability to the M365 client, confirm the
+Optimus claim against its actual code, and produce dedicated design docs for
+3B and 4 (in progress).
 
 ## Sources
 
@@ -293,3 +379,4 @@ impossible.
 - [Microsoft Copilot Cowork network endpoints (Preview)](https://support.microsoft.com/en-us/microsoft-365-copilot/cowork-network-endpoints) — Microsoft Support (official)
 - [Microsoft 365 URLs and IP address ranges](https://learn.microsoft.com/en-us/microsoft-365/enterprise/urls-and-ip-address-ranges) — Microsoft Learn (official)
 - [`cramt/m365-copilot-proxy` — M365 Copilot API docs](https://github.com/cramt/m365-copilot-proxy/blob/main/docs/m365-copilot-api.md) — third-party, reverse-engineered against a real working proxy (not Microsoft-published; cited for the specific SignalR/WebSocket protocol detail Microsoft's own docs don't spell out)
+- Internal design discussion, 2026-09-22 (`docs/intercept-design-transcript.txt`, `docs/whiteboard-intercept-design.{md,pdf}`) — first-party, including Optimus's own owner on the SignalR-tunnel capability claim; cited for the ranked network-layer alternatives and the Reason 2 update, both pending independent code-level confirmation

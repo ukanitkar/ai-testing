@@ -1,0 +1,136 @@
+# Option 3B design: per-process proxy settings
+
+Written 2026-09-22, the dedicated design doc for option 3B of the four
+network-layer alternatives ranked in
+`microsoft-365-copilot-interception-feasibility.md`'s Reason 1 section —
+the option to check *first*, since if it applies it closes Reason 1 for
+zero new engineering. Companion to
+`option-4-process-aware-redirect-design.md`, the fallback if this one
+doesn't hold up.
+
+## The precedent this option generalizes from
+
+The whiteboard/transcript source names Claude as the existing example:
+*"HTTP_PROXY & HTTPS_PROXY env vars per process (e.g. Claude in
+settings.json)."* Worth being precise about **why** that works, since the
+mechanism doesn't transfer just because the pattern name sounds generic.
+Claude Code is a cooperative, proxy-aware application: it reads its own
+proxy configuration from a file this codebase can write to (its
+`settings.json`), and Claude Code's own startup code then applies that as
+its process environment before making any network call. This is an
+**application-level feature Claude Code chose to support**, not an
+OS-provided mechanism for scoping a proxy to one named process. The
+open question for M365 Copilot is whether an equivalent, write-into-a-file
+cooperative surface exists — not whether Windows has a generic "set env var
+for this one EXE" primitive, because it doesn't (checked below).
+
+## Checkpoint, part 1: the classic Office networking stack is a dead end for this — confirmed, not assumed
+
+Checked directly, not inferred from Reason 1's earlier finding alone:
+
+- **Office's native networking (WINWORD.EXE and siblings) uses WinINET**,
+  confirmed via Microsoft's own documentation ecosystem. WinINET proxy
+  configuration is **per-user**, sourced from the registry / Internet
+  Explorer settings — never from Unix-style `HTTP_PROXY`/`HTTPS_PROXY`
+  environment variables, which WinINET-based Windows applications don't
+  read at all.
+- **WinHTTP** (the sibling API some Windows services use) is **per-machine**,
+  not per-user and not per-process. Achieving true per-application scoping
+  with WinHTTP would require the *application's own code* to call the
+  per-session/per-request WinHTTP override APIs itself — again, cooperation
+  the target app has to build in, not something available externally.
+- **Neither stack exposes a native "scope this proxy setting to one named
+  executable" primitive.** Windows proxy configuration is fundamentally
+  per-user or per-machine at the OS level; anything narrower has to come
+  from the application itself choosing to read a narrower config surface.
+
+**This directly explains why 3B "already works for Claude" doesn't
+mechanically generalize**: Claude chose to support it. Nothing found so far
+suggests Office's native stack does the same, and this lines up with what
+Reason 1's own admin-doc research already established (*"No config file,
+registry key, environment variable, or admin policy... that repoints where
+any of this traffic goes"*) — the same absence, confirmed from a different
+angle.
+
+## Checkpoint, part 2: a real, more promising lead — the Copilot pane is WebView2-hosted
+
+Before closing 3B entirely, one more angle: **the Copilot chat experience in
+Word/Excel/PowerPoint is rendered through WebView2** — Microsoft's own
+support documentation lists *"Copilot, Share, and Room Finder"* among the
+Office features built on it. WebView2 is Chromium-based, and Chromium has
+its own, real, **externally-injectable** proxy override that has nothing to
+do with WinINET/WinHTTP:
+
+- **`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`** — a real, Microsoft-documented
+  environment variable. Setting it to `--proxy-server=<host>:<port>` passes
+  that flag to the underlying Chromium browser process WebView2 launches.
+  Confirmed via Microsoft's own WebView2 documentation
+  (`webview-features-flags`), not a third-party claim.
+- A registry alternative exists too
+  (`HKCU\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments`),
+  but that's a per-user **policy** key affecting every WebView2 host app for
+  that user — not narrower than the env var, and not specific to Office or
+  Copilot.
+- Confirmed additive behavior: whatever the env var/registry specifies is
+  **appended** to any browser arguments the host app (Office) already
+  passes — so this doesn't require Office's cooperation or even its
+  awareness. It layers on top.
+
+**Why this could actually be process-scoped, unlike anything on the classic
+stack**: environment variables are inherited per-process by ordinary OS
+rules. If this variable is set only in the target Office process's own
+environment block (not the user's or machine's), it would apply only to
+that process's WebView2/Chromium instances — a real, narrow scope, not a
+system-wide one. That's a materially different proposition from options 1
+and 2, which have no such boundary at all.
+
+## What's still open — two concrete items, not assumptions to build on yet
+
+1. **Unconfirmed: does the actual Chathub WebSocket connection originate
+   inside the WebView2/Chromium context, or from Office's native code
+   (which then only uses the WebView2 pane to render/display)?** This is
+   the load-bearing question. If the connection is genuinely made from
+   Chromium's own network stack (plausible — a persistent chat pane is a
+   common shape for "the native shell just hosts a page that does
+   everything itself," and Copilot is explicitly named as one of the
+   WebView2-hosted features), `--proxy-server` reaches it directly. If the
+   SignalR/WebSocket call is actually made by Office's native code and only
+   the *rendering* happens in WebView2, this option doesn't reach it at
+   all, and the finding in part 1 (WinINET, no per-process lever) governs
+   instead. **Cheap to settle**: set the env var scoped to a real Office
+   process, drive a real Copilot chat interaction, and check whether the
+   connection actually appears at the listener bound to that port — a live
+   test, not further reading.
+2. **Unconfirmed: the actual injection mechanism for a genuinely
+   process-scoped (not user-scoped) environment variable.** Setting an env
+   var only in one specific process's environment block, for a process this
+   codebase doesn't launch itself (Office is typically already running, or
+   launched by Explorer/a file association, not by `ai-protect`), needs its
+   own real mechanism — a process-creation hook analogous in spirit to
+   option 4's connection hook, just intercepting process *creation* instead
+   of connection *establishment*. If that turns out to be as heavy as
+   option 4's kernel work, the "3B is free" premise weakens; a fallback
+   worth noting now is **user-scoped** injection (the env var or registry
+   key set for the user, not the specific process) — broader than ideal
+   (every WebView2-hosted app for that user, not just Office/Copilot), but
+   still far narrower than options 1/2's whole-domain, every-process blast
+   radius, and mechanically simple (an ordinary environment/registry
+   write, no kernel component at all).
+
+## Where this leaves 3B
+
+Not closed, not confirmed — genuinely open, pending the two live checks
+above. Meaningfully more promising than the transcript's original framing
+suggested it might be by default, because of the WebView2 angle — but for a
+reason specific to *how Copilot's UI happens to be built*, not because
+Windows offers a general per-process proxy primitive. If item 1 fails (the
+connection isn't Chromium-originated), 3B is closed for the same underlying
+reason Reason 1 was already closed at the app-config level, and option 4
+becomes the only path.
+
+## Sources
+
+- [WebView2 conflict in Office applications — Microsoft Support](https://support.microsoft.com/en-us/office/webview2-conflict-in-office-applications-5f813864-0516-450f-a96d-e426634d7b01) — confirms Copilot is among the WebView2-hosted Office features
+- [WebView2 browser flags — Microsoft Edge Developer documentation](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags) — `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, the registry alternative, and the additive-append behavior
+- [Setting WinINet Proxy Configurations in WinHTTP — Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/winhttp/setting-wininet-proxy-configurations-in-winhttp) — WinINET (per-user) vs. WinHTTP (per-machine) scoping
+- `microsoft-365-copilot-interception-feasibility.md`, Reason 1 — the original admin-doc finding this doc's part-1 checkpoint corroborates from a different angle

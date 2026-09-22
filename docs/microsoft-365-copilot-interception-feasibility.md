@@ -4,10 +4,10 @@ Written 2026-09-21, as a follow-up to `copilot-desktop-apps-coverage-gap.html`'s
 disambiguation of the word "Copilot." That doc ruled Microsoft 365 Copilot
 **out of scope permanently** for a simple reason: it's a different company's
 product, talking to a different backend, with no shared infrastructure to
-intercept via anything built for GitHub Copilot. This doc answers a narrower,
-separate question raised afterward: **forget GitHub entirely — could the same
-*kind* of approach (a local listener a client is redirected to, relaying to
-the real backend) work against Microsoft 365 Copilot on its own terms?**
+intercept via anything built for GitHub Copilot. This doc investigates that
+question properly on its own terms: **could a local listener the client is
+redirected to, relaying to the real backend, work against Microsoft 365
+Copilot specifically?**
 
 **Short answer: not through any existing lever or capability — but, on
 working the alternatives through in full, this isn't a dead end the way it
@@ -16,8 +16,8 @@ forward, checked against Microsoft's own current admin documentation and
 real reverse-engineering, not guessed — each at a real, specific cost rather
 than a structural impossibility. That changes what kind of conclusion this
 is: not "closed," but "open, at a cost this section spells out, pending a
-resourcing and risk decision." See **Net assessment** for where that leaves
-this relative to the VS Code Copilot Chat case.
+resourcing and risk decision." See **Net assessment** for what that means in
+practice.
 
 ## What Microsoft 365 Copilot actually is
 
@@ -27,26 +27,17 @@ grounded in their actual organizational data via **Microsoft Graph**, then
 sent to a large language model on **Azure OpenAI Service**, with the response
 grounded back into the document/app context. Confirmed distinct from GitHub
 Copilot on Microsoft's own page: *"a completely separate product from GitHub
-Copilot."* Structurally the same shape as GitHub Copilot — client app →
-orchestration/auth layer → LLM backend → response — but a completely
-different, Microsoft-owned backend with zero relationship to GitHub's CAPI.
+Copilot."*
 
 ## Reason 1: there is no redirect lever — the endpoint is fixed, not configurable
 
-GitHub Copilot's VS Code integration had `github-enterprise.uri`: a real
-`settings.json` key that (for an enterprise-flagged account) determines where
-the client sends its discovery call, and whose response the client trusts
-unconditionally for where to send everything after. That's the lever the
-whole interception mechanism was built on.
-
-**Microsoft 365 Copilot has no equivalent.** Per Microsoft's own admin
-documentation
+Per Microsoft's own admin documentation
 ([App and network requirements for Microsoft Copilot admins](https://learn.microsoft.com/en-us/microsoft-365/copilot/microsoft-365-copilot-requirements)):
 
 - Copilot's enterprise experiences connect to a fixed set of domains:
   `copilot.cloud.microsoft`, more broadly `*.cloud.microsoft`, and
-  `*.office.com`. These are the same for every tenant — not resolved from a
-  per-tenant or per-device setting the way `github-enterprise.uri` is.
+  `*.office.com`. These are the same for every tenant — not resolved from any
+  per-tenant or per-device setting.
 - Microsoft's explicit guidance to admins is to allow the **entire**
   `*.cloud.microsoft` domain, stating directly: *"Microsoft doesn't support
   allowing partial or only selected Microsoft 365 application URLs within the
@@ -57,16 +48,14 @@ documentation
   treat atomically.
 - No config file, registry key, environment variable, or admin policy
   surfaced in this documentation that repoints where any of this traffic
-  goes. Compare this to VS Code, where `github-enterprise.uri` is a real,
-  documented, user-or-workspace-scoped `settings.json` key that does exactly
-  that (for the one account type that reads it).
+  goes.
 
-**Consequence**: there's no equivalent of "write one config key, watch the
-client connect to us instead." Nothing here determines its own destination
-from anything write-accessible. This alone is sufficient to close the
-question via the app-config route — but a config key isn't the only way to
-redirect a connection, so the network-layer alternative below was worked
-through too, before concluding it doesn't actually get around this either.
+**Consequence**: there's no way to write a single config value and have the
+client connect somewhere else instead — nothing here determines its own
+destination from anything write-accessible. This closes the question via the
+app-config route — but a config key isn't the only way to redirect a
+connection, so the network-layer alternative below was worked through too,
+before concluding it doesn't actually get around this either.
 
 ### A different path to Reason 1: DNS-wildcard redirect + dynamic cert minting
 
@@ -116,12 +105,11 @@ the traffic once it arrives.
 
 ## Reason 2: the traffic is a persistent SignalR WebSocket, not request/response HTTP — and Microsoft documents interception breaking it
 
-Every interception mechanism this codebase has actually built —
-`kinds::copilot_discovery`'s direct call-and-rewrite, the `forward()`/Optimus
-tunnel every `BaseUrl` agent uses — is shaped around discrete HTTP
-request/response pairs: a request comes in, gets relayed or answered, a
-response goes back. Microsoft 365 Copilot's traffic is not that shape, and
-this is now confirmed at the protocol level, not just at the
+Every interception mechanism this codebase has actually built — including
+the `forward()`/Optimus tunnel every `BaseUrl` agent uses — is shaped around
+discrete HTTP request/response pairs: a request comes in, gets relayed or
+answered, a response goes back. Microsoft 365 Copilot's traffic is not that
+shape, and this is now confirmed at the protocol level, not just at the
 network-connectivity level.
 
 **Official Microsoft documentation confirms the connectivity requirement.**
@@ -207,15 +195,14 @@ solved, which it currently isn't.
 A natural next idea, raised and worked through in this investigation: since
 Optimus's `forward()` only ever speaks HTTP, could our own listener terminate
 the client's WebSocket, translate each frame into something Optimus *can*
-relay, and translate the response back into WS frames on the way out — the
-same "different shape on each side of the listener" pattern the
-`CopilotDiscoveryRelay` mechanism already uses for GitHub Copilot's discovery
-leg? Worked through fully, this splits into two concrete designs, and both
-run into a real, structural problem rather than a shallow one.
+relay, and translate the response back into WS frames on the way out?
+Worked through fully, this splits into two concrete designs, and both run
+into a real, structural problem rather than a shallow one.
 
 **Design A — bridge to a *different*, genuinely HTTP-shaped backend.**
 Microsoft does expose an official HTTP/SSE surface for Copilot chat: the
-Graph `chatOverStream` API (§ above). In principle, the listener could
+Graph `chatOverStream` API, a developer-facing REST endpoint that returns a
+plain `text/event-stream` response. In principle, the listener could
 translate each client "send message" frame into a POST against that
 endpoint, relay it through Optimus unchanged, and translate the SSE response
 back into WS frames.
@@ -260,17 +247,15 @@ a structural impossibility.
 
 **The sharper, cheaper alternative, and why it's a tradeoff rather than a
 free win.** If instead the listener itself opened the real WebSocket to
-Microsoft directly — bypassing Optimus entirely, the same precedent
-`kinds::copilot_discovery` already sets for GitHub Copilot's discovery leg —
-that's mechanically buildable today, with no new dependency on Optimus at
-all. But the discovery leg could bypass Optimus safely only because it's
-low-stakes account metadata, nothing worth policy-inspecting. M365 Copilot's
-chat content is the opposite: it's exactly the traffic worth inspecting —
-the actual prompts and completions, the real DLP-relevant material.
-Bypassing Optimus gets the mechanism working fastest, at the cost of
-discarding the one property that made building it worthwhile in the first
-place. It's the fallback if the Optimus investment isn't prioritized, not a
-substitute for it.
+Microsoft directly — bypassing Optimus entirely — that's mechanically
+buildable today, with no new dependency on Optimus at all. But that only
+works safely for traffic that's low-stakes and not worth policy-inspecting.
+M365 Copilot's chat content is the opposite: it's exactly the traffic worth
+inspecting — the actual prompts and completions, the real DLP-relevant
+material. Bypassing Optimus gets the mechanism working fastest, at the cost
+of discarding the one property that made building it worthwhile in the
+first place. It's the fallback if the Optimus investment isn't prioritized,
+not a substitute for it.
 
 **Net**: Design A trades away fidelity (a different, likely-degraded
 backend). Design B, done properly, trades away nothing — but costs real,
@@ -285,22 +270,16 @@ traffic."
 
 ## Net assessment
 
-| | GitHub Copilot (VS Code) | Microsoft 365 Copilot |
+| Blocker | Status | Path forward, and its cost |
 |---|---|---|
-| Redirect lever | `github-enterprise.uri` — real, but gated by the `enterprise: true` account flag (§3.1 of the VS Code write-up) | No app-level config lever. A network-layer path exists (DNS-wildcard redirect + dynamic cert minting) at the cost of terminating TLS on all M365 traffic under the wildcard, not just Copilot |
-| Traffic shape | HTTP request/response — matches existing relay infrastructure | Persistent SignalR-over-WebSocket (confirmed protocol detail, not just connectivity) — a different shape than anything built so far, with an unconfirmed long-polling fallback that could change this |
-| Documented interception risk | None found for the mechanism itself | Microsoft explicitly documents TLS inspection causing failures on this traffic |
-| Path to closing it | Mechanism proven correct with real traffic; account-gate is the one open, hard-to-close gap — no further engineering needed, just a real enterprise-flagged account | Two real, buildable paths, each with a named cost: DNS+cert redirect (blast-radius/reliability risk across shared M365 traffic) for Reason 1, and Optimus gaining SignalR-tunnel capability (cross-team engineering investment in a system outside this repo) for Reason 2 — or bypass Optimus for Reason 2 cheaply, at the cost of losing policy enforcement on exactly the traffic that matters |
+| **Reason 1** — no redirect lever | No app-level config lever exists; the endpoint is a fixed, wildcarded, tenant-wide domain | DNS-wildcard redirect + dynamic cert minting — mechanically doable, at the cost of terminating TLS on *all* M365 traffic sharing the wildcard (SharePoint, OneDrive, Teams, Outlook), not just Copilot |
+| **Reason 2** — persistent SignalR WebSocket | Confirmed protocol-level mismatch with this codebase's HTTP-only relay infrastructure; Microsoft documents naive TLS inspection breaking this traffic | Optimus gaining SignalR-tunnel capability — a real, cross-team engineering investment in a system outside this repo; or bypass Optimus entirely, cheaply, at the cost of losing policy enforcement on exactly the traffic that matters |
 
 **Recommendation**: treat this as a resourcing and prioritization decision,
-not a closed door. The VS Code Copilot Chat case remains the nearer-term,
-lower-cost opportunity — one concrete, already-built mechanism with a single
-named gap (the `enterprise: true` account flag) worth watching for a future
-closure, no new infrastructure required. Microsoft 365 Copilot is a real,
-second-tier candidate behind it: pursuing it means deliberately accepting
-the Reason 1 blast-radius increase (decrypting and re-terminating TLS for
-all of SharePoint/OneDrive/Teams/Outlook sharing the wildcard, not just
-Copilot) and either committing real cross-team engineering time to add
+not a closed door. Pursuing it means deliberately accepting the Reason 1
+blast-radius increase (decrypting and re-terminating TLS for all of
+SharePoint/OneDrive/Teams/Outlook sharing the wildcard, not just Copilot)
+and either committing real cross-team engineering time to add
 SignalR-tunnel capability to Optimus, or accepting the cheaper bypass
 variant's loss of policy enforcement on the traffic that's the whole point.
 Worth scoping as an actual proposal to whoever owns Optimus if there's

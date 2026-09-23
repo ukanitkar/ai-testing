@@ -77,38 +77,32 @@ problem as the DNS-wildcard approach below, arrived at independently: no
 per-process context means no way to scope the redirect narrower than the
 whole domain.
 
-**3 — process-level proxy settings.** Two sub-variants, one already ruled
-out, one genuinely promising:
+**3 — process-level proxy settings.** Two sub-variants:
+
 - **3A — a base-URL key in the app's own settings file.** Ruled out for the
   same reason as the rest of Reason 1: no such key exists for this app.
 - **3B — per-process proxy environment/settings, applied only to the
-  target process.** This is **not hypothetical — it's the mechanism this
-  codebase already ships for other agents** (e.g. Claude, via its own
-  `settings.json`-adjacent config). If Word/Excel/Outlook's own networking
-  stack honors an equivalent per-process proxy setting, this closes Reason 1
-  with **zero new engineering** — reusing an existing, working mechanism
-  rather than building anything. **Unresolved and worth checking first**:
-  whether the M365 Copilot client process actually reads such a setting.
-  If it does, this supersedes everything else in this section.
+  target process.** The option to check first, since if it applies it
+  closes Reason 1 for zero new engineering. **Full design and checkpoint
+  findings**: [`option-3b-per-process-proxy-design.md`](option-3b-per-process-proxy-design.md)
+  — short version: the classic Office networking stack (WinINET/WinHTTP)
+  is confirmed to have no per-process lever, but the Copilot pane is
+  WebView2-hosted, and WebView2's own `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+  is a real, confirmed, potentially process-scoped proxy override —
+  genuinely open pending two concrete live checks documented there.
 
 **4 — process-aware kernel-level redirect (WFP on Windows, Network
-Extension on macOS).** The general-purpose fallback if 3B doesn't apply:
-hook the OS's socket-open event, resolve the responsible process, look up
-whether it's an agent this codebase brokers, and — only for that
-process — return the local listener's address instead of the real
-destination IP. This is real, not speculative: **`network_egress`
-(documented in `AGENTS.md`) already implements almost exactly this pattern**
-— ETW-based process↔connection correlation, WFP filters at
-`FWPM_LAYER_ALE_AUTH_CONNECT_V4`, scoped per-process via `ALE_APP_ID`, on
-Windows; a `NEFilterDataProvider` system extension on macOS. The gap: that
-existing infrastructure does *observe* and *block*, not *redirect* — Windows
-has a dedicated WFP Connect-Redirect capability for this, but it's new
-callout work, not a rename of what's already there; and macOS's
-`network_egress` leg is documented as **observe-only today**, so redirect
-capability there is new work on both platforms, just built on a technology
-family this codebase already has deep, working expertise in — a materially
-smaller lift than either the DNS-wildcard approach below or a from-scratch
-subsystem.
+Extension on macOS).** The general-purpose fallback if 3B doesn't apply,
+built on infrastructure this codebase already has (`network_egress`'s
+existing process↔connection correlation). **Full design and checkpoint
+findings**: [`option-4-process-aware-redirect-design.md`](option-4-process-aware-redirect-design.md)
+— short version: Windows' `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` is a real,
+documented sibling to the observe layer already in use; macOS needs a
+second, separate system extension (`NETransparentProxyProvider`, distinct
+from the existing `NEFilterDataProvider`), with a real historical
+WebSocket-breaking compatibility bug between the two types flagged and
+resolved (fixed in macOS 11.2 — not a blocker on a 2026 fleet, but worth a
+pinned regression test).
 
 **Sequencing decided in that discussion**: check 3B first, since if it
 applies it's free. If it doesn't, 4 is the fallback — "we can definitely do
@@ -396,7 +390,7 @@ Reason 1, which nothing in this section touches.
 
 | Blocker | Status | Path forward, and its cost |
 |---|---|---|
-| **Reason 1** — no redirect lever | No app-level config lever exists; the endpoint is a fixed, wildcarded, tenant-wide domain | Ranked in priority order above: **3B** (per-process proxy settings, reusing an existing mechanism) closes this for free *if* the M365 client honors it — unconfirmed, check first. **4** (process-aware WFP/Network-Extension redirect) is the general fallback, buildable on infrastructure this codebase already has (`network_egress`), with new work needed on both platforms for the redirect action specifically. Options 1/2/DNS-wildcard all share the same disqualifying blast-radius problem and are superseded by 3B/4. Detailed design for 3B and 4 to follow in their own docs. |
+| **Reason 1** — no redirect lever | No app-level config lever exists; the endpoint is a fixed, wildcarded, tenant-wide domain | Ranked in priority order above: **3B** and **4** are the two live candidates, each with its own design doc and checkpoint findings ([3B](option-3b-per-process-proxy-design.md), [4](option-4-process-aware-redirect-design.md)). Options 1/2/DNS-wildcard all share the same disqualifying blast-radius problem and are superseded by 3B/4. |
 | **Reason 2** — persistent SignalR WebSocket | **Closed, confirmed 2026-09-22 against Optimus's actual source.** `gateway-wss`'s `run_wss_relay` is live in the default request path (`wss_enabled: true`), reassembles and inspects text messages generically (covers SignalR transparently), and already has an enforcement mode (`wss.enforce`, ZSAI-8160) that holds and substitutes blocked messages. | No cost remaining — this is existing, shipped, enabled-by-default capability, not new engineering. Design A/B's bridging analysis is superseded and kept only as a record. |
 
 **Recommendation**: treat this as a resourcing and prioritization decision

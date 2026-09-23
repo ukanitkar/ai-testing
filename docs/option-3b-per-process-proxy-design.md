@@ -71,9 +71,7 @@ scope of this whole option, definitively**: *"WebView2 Runtime isn't
 installed on devices running macOS."* That's not an inference — it's
 Microsoft's own deployment documentation
 ([`webview2-install`](https://learn.microsoft.com/en-us/microsoft-365-apps/deploy/webview2-install)),
-stated outright. **3B is a Windows-only option, full stop.** There is no
-degraded or partial macOS path to investigate here — macOS needs option 4
-regardless of anything found in this document.
+stated outright. **3B is a Windows-only option, full stop.**
 
 The same Microsoft Learn document also gives Outlook a real, if narrower,
 citation: it names *"Room Finder and Meeting Insights"* as WebView2-based
@@ -130,6 +128,47 @@ app before concluding the WebView2 lever works generally, and classic
 Outlook specifically needs its own check rather than an assumption it
 matches Word/Excel/PowerPoint.
 
+## Checkpoint, part 3: the macOS equivalent was checked too — closed by architecture, not just absent
+
+Worth checking rather than assuming: does macOS have its *own* version of
+the same trick, using whatever Apple's equivalent to WebView2 is? Checked
+directly, and the answer is a firmer no than "the specific technology isn't
+there."
+
+**Mac Office's embedded-web mechanism is confirmed**: a Microsoft Learn
+table ([`browsers-used-by-office-web-add-ins`](https://learn.microsoft.com/en-us/office/dev/add-ins/concepts/browsers-used-by-office-web-add-ins))
+states plainly — Windows uses *"Microsoft Edge (Chromium-based) with
+WebView2,"* Mac uses *"Safari with WKWebView."* WKWebView is Apple's
+WebKit-based embedded browser control, the real macOS counterpart. (Scoped
+to "Add-ins" by title, not named for Copilot specifically — but WKWebView is
+essentially the only sanctioned embedded-browser engine available to any
+macOS app, first- or third-party, so it's a near-certainty Copilot's own
+pane uses the same thing.)
+
+**WKWebView has no equivalent to `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` —
+not a differently-shaped one, none at all**:
+
+- Apple's only proxy-configuration surface for WKWebView is
+  `WKWebsiteDataStore.proxyConfigurations` (the `ProxyConfiguration` API,
+  introduced iOS 17.0) — a **programmatic API the host app's own code must
+  call itself, before creating the WKWebView instance.** There is no
+  environment variable, command-line flag, or registry/plist key that
+  injects a proxy from outside the app the way the Windows env var does.
+  Office would have to opt into this in its own code, for our purposes,
+  which it has no reason to do.
+- **WKWebView doesn't inherit the system-wide proxy setting either**,
+  confirmed via Apple's own developer forums. So there isn't even a
+  broader, "user-scoped, more blast radius, no kernel component" fallback
+  the way there might have been on Windows — there's no system-level lever
+  WKWebView reads at all, narrow or broad.
+
+**Net: this is closed by architecture, not merely by WebView2's absence.**
+Even imagining a hypothetical macOS-native equivalent of the Windows
+mechanism, it doesn't exist — the only lever Apple provides requires the
+target application's cooperation, which is exactly the category of thing
+3B was trying to avoid needing. Option 4 is the only real path for macOS,
+and this is why, not just that.
+
 ## What's still open — two concrete items, not assumptions to build on yet
 
 1. **Unconfirmed: does the actual Chathub WebSocket connection originate
@@ -184,4 +223,6 @@ apps/platforms 3B doesn't reach.
 - [Microsoft Edge WebView2 and Microsoft 365 Apps — Microsoft Learn](https://learn.microsoft.com/en-us/microsoft-365-apps/deploy/webview2-install) — directly read; confirms WebView2 isn't installed on macOS, and names Outlook's Room Finder/Meeting Insights as WebView2-based
 - [WebView2 browser flags — Microsoft Edge Developer documentation](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags) — `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, the registry alternative, and the additive-append behavior
 - [Setting WinINet Proxy Configurations in WinHTTP — Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/winhttp/setting-wininet-proxy-configurations-in-winhttp) — WinINET (per-user) vs. WinHTTP (per-machine) scoping
+- [Browsers and webview controls used by Office Add-ins — Microsoft Learn](https://learn.microsoft.com/en-us/office/dev/add-ins/concepts/browsers-used-by-office-web-add-ins) — directly read; the Windows-WebView2 / Mac-WKWebView table
+- [What is the recommended way to programmatically apply proxy to WKWebView — Apple Developer Forums](https://developer.apple.com/forums/thread/703964) and [Use a HTTP Proxy with WKWebView — Apple Developer Forums](https://developer.apple.com/forums/thread/110312) — the `WKWebsiteDataStore.proxyConfigurations` API being host-app-code-only, and WKWebView not inheriting the system proxy
 - `microsoft-365-copilot-interception-feasibility.md`, Reason 1 — the original admin-doc finding this doc's part-1 checkpoint corroborates from a different angle

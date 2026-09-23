@@ -52,14 +52,39 @@ registry key, environment variable, or admin policy... that repoints where
 any of this traffic goes"*) — the same absence, confirmed from a different
 angle.
 
-## Checkpoint, part 2: a real, more promising lead — the Copilot pane is WebView2-hosted
+## Checkpoint, part 2: a real, more promising lead — the Copilot pane is WebView2-hosted (on Windows only)
 
 Before closing 3B entirely, one more angle: **the Copilot chat experience in
-Word/Excel/PowerPoint is rendered through WebView2** — Microsoft's own
-support documentation lists *"Copilot, Share, and Room Finder"* among the
-Office features built on it. WebView2 is Chromium-based, and Chromium has
-its own, real, **externally-injectable** proxy override that has nothing to
-do with WinINET/WinHTTP:
+Word/Excel/PowerPoint is rendered through WebView2**. Sourcing note, stated
+plainly: the specific Microsoft KB article this traces to
+("WebView2 Conflict in Office Applications") did not render its real
+content through two separate fetch attempts — both landed on a generic
+Microsoft 365 help hub page instead. What's cited here is **secondhand**,
+via BleepingComputer's reporting on that article (*"Excel, Word, PowerPoint,
+OneNote, Publisher, and Access"* named as affected, with *"Copilot, Share,
+and Room Finder"* named as the WebView2-dependent features), not a direct
+read of Microsoft's own page. Treat the Word/Excel/PowerPoint-Copilot link
+as well-supported, not KB-primary-sourced.
+
+**A separate, directly-read Microsoft Learn document changes the platform
+scope of this whole option, definitively**: *"WebView2 Runtime isn't
+installed on devices running macOS."* That's not an inference — it's
+Microsoft's own deployment documentation
+([`webview2-install`](https://learn.microsoft.com/en-us/microsoft-365-apps/deploy/webview2-install)),
+stated outright. **3B is a Windows-only option, full stop.** There is no
+degraded or partial macOS path to investigate here — macOS needs option 4
+regardless of anything found in this document.
+
+The same Microsoft Learn document also gives Outlook a real, if narrower,
+citation: it names *"Room Finder and Meeting Insights"* as WebView2-based
+Outlook features, and states *"you see multiple instances of Microsoft Edge
+WebView2 running under the Microsoft Outlook process"* — confirming Outlook
+hosts WebView2 instances routinely. It does not name Copilot specifically,
+so this is corroborating, not dispositive, for Outlook's Copilot pane.
+
+WebView2 is Chromium-based, and Chromium has its own, real,
+**externally-injectable** proxy override that has nothing to do with
+WinINET/WinHTTP:
 
 - **`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`** — a real, Microsoft-documented
   environment variable. Setting it to `--proxy-server=<host>:<port>` passes
@@ -84,19 +109,26 @@ that process's WebView2/Chromium instances — a real, narrow scope, not a
 system-wide one. That's a materially different proposition from options 1
 and 2, which have no such boundary at all.
 
-**"The target Office process" is not one process — Microsoft 365 is a
-suite, not a single app.** Copilot Chat is confirmed to run inside Word,
-Excel, PowerPoint, *and* Outlook, each its own process:
-`WINWORD.EXE`/`EXCEL.EXE`/`POWERPNT.EXE`/`OUTLOOK.EXE` on Windows, and the
-corresponding app bundles on macOS (`Microsoft Word.app`,
-`Microsoft Excel.app`, `Microsoft PowerPoint.app`,
-`Microsoft Outlook.app`). Whatever mechanism actually injects
-`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` scoped to "the" target process needs
-to match against **all** of these, independently — a user might have the
-Copilot pane open in Excel and Outlook simultaneously, and both need the
-same treatment. This also means the live check in item 1 below should be
-run against more than one host app before concluding the WebView2 lever
-works generally, not just for whichever app happened to be tested first.
+**"The target Office process" is not one process, and — since this option
+is Windows-only — it's a Windows process list specifically, not the
+cross-platform one Reason 1 deals with generally.** On Windows, the
+candidates are `WINWORD.EXE`, `EXCEL.EXE`, `POWERPNT.EXE`, and
+`OUTLOOK.EXE`, each independently, at different confidence levels:
+
+| Process | Confidence Copilot's pane is WebView2-hosted |
+|---|---|
+| `WINWORD.EXE`, `EXCEL.EXE`, `POWERPNT.EXE` | Named directly (secondhand-sourced, see above) |
+| `OUTLOOK.EXE` (new Outlook) | Confirmed by architecture — the whole app is a WebView2 shell, Copilot included by construction |
+| `OUTLOOK.EXE` (classic Outlook) | Circumstantial only — Outlook confirmed to host WebView2 instances (Room Finder, Meeting Insights), Copilot not named specifically |
+
+Whatever mechanism actually injects `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`
+scoped to "the" target process needs to match against **all four**,
+independently — a user might have the Copilot pane open in Excel and
+Outlook simultaneously, and both need the same treatment. This also means
+the live check in item 1 below should be run against more than one host
+app before concluding the WebView2 lever works generally, and classic
+Outlook specifically needs its own check rather than an assumption it
+matches Word/Excel/PowerPoint.
 
 ## What's still open — two concrete items, not assumptions to build on yet
 
@@ -134,17 +166,22 @@ works generally, not just for whichever app happened to be tested first.
 ## Where this leaves 3B
 
 Not closed, not confirmed — genuinely open, pending the two live checks
-above. Meaningfully more promising than the transcript's original framing
-suggested it might be by default, because of the WebView2 angle — but for a
-reason specific to *how Copilot's UI happens to be built*, not because
-Windows offers a general per-process proxy primitive. If item 1 fails (the
-connection isn't Chromium-originated), 3B is closed for the same underlying
-reason Reason 1 was already closed at the app-config level, and option 4
-becomes the only path.
+above, and now with a **defined boundary**: Windows only, never macOS,
+confirmed directly rather than assumed. Meaningfully more promising than
+the transcript's original framing suggested it might be by default, because
+of the WebView2 angle — but for a reason specific to *how Copilot's UI
+happens to be built*, not because Windows offers a general per-process
+proxy primitive. If item 1 fails (the connection isn't Chromium-originated)
+for Word/Excel/PowerPoint, or if classic Outlook's Copilot pane turns out
+not to be WebView2-hosted at all, 3B is closed for that app for the same
+underlying reason Reason 1 was already closed at the app-config level — and
+option 4 (which does cover macOS) becomes the only path for whichever
+apps/platforms 3B doesn't reach.
 
 ## Sources
 
-- [WebView2 conflict in Office applications — Microsoft Support](https://support.microsoft.com/en-us/office/webview2-conflict-in-office-applications-5f813864-0516-450f-a96d-e426634d7b01) — confirms Copilot is among the WebView2-hosted Office features
+- [WebView2 conflict in Office applications — Microsoft Support](https://support.microsoft.com/en-us/office/webview2-conflict-in-office-applications-5f813864-0516-450f-a96d-e426634d7b01) — the specific known-issue page; **not independently read** (two fetch attempts both resolved to a generic help hub instead). Content cited here comes via [BleepingComputer's reporting on it](https://www.bleepingcomputer.com/news/microsoft/microsoft-running-multiple-office-apps-causes-copilot-issues/), not a direct read
+- [Microsoft Edge WebView2 and Microsoft 365 Apps — Microsoft Learn](https://learn.microsoft.com/en-us/microsoft-365-apps/deploy/webview2-install) — directly read; confirms WebView2 isn't installed on macOS, and names Outlook's Room Finder/Meeting Insights as WebView2-based
 - [WebView2 browser flags — Microsoft Edge Developer documentation](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags) — `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, the registry alternative, and the additive-append behavior
 - [Setting WinINet Proxy Configurations in WinHTTP — Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/winhttp/setting-wininet-proxy-configurations-in-winhttp) — WinINET (per-user) vs. WinHTTP (per-machine) scoping
 - `microsoft-365-copilot-interception-feasibility.md`, Reason 1 — the original admin-doc finding this doc's part-1 checkpoint corroborates from a different angle

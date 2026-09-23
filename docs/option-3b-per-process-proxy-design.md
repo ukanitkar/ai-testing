@@ -115,7 +115,8 @@ candidates are `WINWORD.EXE`, `EXCEL.EXE`, `POWERPNT.EXE`, and
 
 | Process | Confidence Copilot's pane is WebView2-hosted |
 |---|---|
-| `WINWORD.EXE`, `EXCEL.EXE`, `POWERPNT.EXE` | Named directly (secondhand-sourced, see above) |
+| `WINWORD.EXE` | **Directly confirmed** — a Microsoft Q&A moderator response, in a real support thread about the Word Copilot pane specifically, states outright: *"Word's pane runs on WebView2"* (repairing "the Edge WebView2 Runtime (this is the 'web UI engine' Word uses)" was the given fix). First-party, not secondhand. |
+| `EXCEL.EXE`, `POWERPNT.EXE` | Named directly, but **secondhand-sourced** (via BleepingComputer's reporting on the KB article, see above) — not yet independently confirmed the way Word now is |
 | `OUTLOOK.EXE` (new Outlook) | Confirmed by architecture — the whole app is a WebView2 shell, Copilot included by construction |
 | `OUTLOOK.EXE` (classic Outlook) | Circumstantial only — Outlook confirmed to host WebView2 instances (Room Finder, Meeting Insights), Copilot not named specifically |
 
@@ -220,6 +221,7 @@ apps/platforms 3B doesn't reach.
 ## Sources
 
 - [WebView2 conflict in Office applications — Microsoft Support](https://support.microsoft.com/en-us/office/webview2-conflict-in-office-applications-5f813864-0516-450f-a96d-e426634d7b01) — the specific known-issue page; **not independently read** (two fetch attempts both resolved to a generic help hub instead). Content cited here comes via [BleepingComputer's reporting on it](https://www.bleepingcomputer.com/news/microsoft/microsoft-running-multiple-office-apps-causes-copilot-issues/), not a direct read
+- [MS Word — the Copilot pane no longer allows highlighting text — Microsoft Q&A](https://learn.microsoft.com/en-us/answers/questions/5773581/ms-word-the-copilot-pane-no-longer-allows-highligh) — directly read; a Microsoft moderator response states outright that Word's Copilot pane "runs on WebView2." First-party confirmation specific to Word, independent of the KB article above
 - [Microsoft Edge WebView2 and Microsoft 365 Apps — Microsoft Learn](https://learn.microsoft.com/en-us/microsoft-365-apps/deploy/webview2-install) — directly read; confirms WebView2 isn't installed on macOS, and names Outlook's Room Finder/Meeting Insights as WebView2-based
 - [WebView2 browser flags — Microsoft Edge Developer documentation](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/webview-features-flags) — `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`, the registry alternative, and the additive-append behavior
 - [Setting WinINet Proxy Configurations in WinHTTP — Microsoft Learn](https://learn.microsoft.com/en-us/windows/win32/winhttp/setting-wininet-proxy-configurations-in-winhttp) — WinINET (per-user) vs. WinHTTP (per-machine) scoping

@@ -84,6 +84,20 @@ that process's WebView2/Chromium instances — a real, narrow scope, not a
 system-wide one. That's a materially different proposition from options 1
 and 2, which have no such boundary at all.
 
+**"The target Office process" is not one process — Microsoft 365 is a
+suite, not a single app.** Copilot Chat is confirmed to run inside Word,
+Excel, PowerPoint, *and* Outlook, each its own process:
+`WINWORD.EXE`/`EXCEL.EXE`/`POWERPNT.EXE`/`OUTLOOK.EXE` on Windows, and the
+corresponding app bundles on macOS (`Microsoft Word.app`,
+`Microsoft Excel.app`, `Microsoft PowerPoint.app`,
+`Microsoft Outlook.app`). Whatever mechanism actually injects
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` scoped to "the" target process needs
+to match against **all** of these, independently — a user might have the
+Copilot pane open in Excel and Outlook simultaneously, and both need the
+same treatment. This also means the live check in item 1 below should be
+run against more than one host app before concluding the WebView2 lever
+works generally, not just for whichever app happened to be tested first.
+
 ## What's still open — two concrete items, not assumptions to build on yet
 
 1. **Unconfirmed: does the actual Chathub WebSocket connection originate

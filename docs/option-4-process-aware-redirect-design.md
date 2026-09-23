@@ -24,6 +24,17 @@ This reuses the process↔connection correlation this codebase's
 the new piece is step 5, an actual redirect action, which `network_egress`
 doesn't do today on either platform.
 
+**Step 3's lookup is a set match, not a single name.** Microsoft 365 is a
+suite, not one app — Copilot Chat runs inside Word, Excel, PowerPoint, and
+Outlook independently, each its own process: `WINWORD.EXE`/`EXCEL.EXE`/
+`POWERPNT.EXE`/`OUTLOOK.EXE` on Windows, `Microsoft Word.app`/
+`Microsoft Excel.app`/`Microsoft PowerPoint.app`/`Microsoft Outlook.app` on
+macOS. "Is this process an agent we broker" needs to resolve `true` for any
+of these, and the connections worth redirecting can come from more than one
+of them open at the same time on the same device — the design shouldn't
+assume a single named target the way "the M365 Copilot client" phrasing
+elsewhere in this doc might suggest.
+
 ## Checkpoint: verify the platform primitives before committing to this design
 
 Three things needed independent verification before treating this option as

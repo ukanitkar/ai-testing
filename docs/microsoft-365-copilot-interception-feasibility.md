@@ -1,4 +1,4 @@
-# Intercepting Microsoft 365 Copilot traffic: the two real blockers, and what closing each one costs
+# Intercepting Microsoft 365 Copilot traffic: one real blocker left, and what closing it costs
 
 Written 2026-09-21, as a follow-up to `copilot-desktop-apps-coverage-gap.html`'s
 disambiguation of the word "Copilot." That doc ruled Microsoft 365 Copilot
@@ -9,15 +9,15 @@ question properly on its own terms: **could a local listener the client is
 redirected to, relaying to the real backend, work against Microsoft 365
 Copilot specifically?**
 
-**Short answer: not through any existing lever or capability — but, on
-working the alternatives through in full, this isn't a dead end the way it
-first looked.** Both reasons below have an identified, buildable path
-forward, checked against Microsoft's own current admin documentation and
-real reverse-engineering, not guessed — each at a real, specific cost rather
-than a structural impossibility. That changes what kind of conclusion this
-is: not "closed," but "open, at a cost this section spells out, pending a
-resourcing and risk decision." See **Net assessment** for what that means in
-practice.
+**Short answer, updated 2026-09-22: one of the two original blockers is now
+closed, confirmed against real code, not guessed.** This doc originally
+found two problems — no redirect lever (Reason 1), and a WebSocket protocol
+this codebase's relay infrastructure wasn't shaped for (Reason 2). Reason 2
+is now confirmed **closed**: Optimus already has a native, production WSS
+relay with content inspection and enforcement built in (see the update under
+Reason 2 below). Reason 1 remains open, with two ranked, buildable paths
+already given their own design docs. See **Net assessment** for where that
+leaves this.
 
 ## What Microsoft 365 Copilot actually is
 
@@ -254,30 +254,67 @@ would be new, real engineering work, not a reuse of anything that exists
 today — and it would only be worth attempting after Reason 1 is somehow
 solved, which it currently isn't.
 
-### Update, 2026-09-22 — Optimus's own owner states this capability already exists
+### Update, 2026-09-22 — confirmed directly against Optimus's own source: this capability is real, live, and more capable than described
 
-In an internal design discussion, the person who owns Optimus stated
-directly: *"we have the ability in Optimus to handle that [WSS
+An internal design discussion first surfaced this: the person who owns
+Optimus stated *"we have the ability in Optimus to handle that [WSS
 forwarding]... we basically are supporting that, and if there's a bug, we'll
-fix it."* Also confirmed in the same discussion: the triple-JWT auth header
-only needs attaching once, at the initial HTTP `Upgrade` request — once the
-connection is recognized as carrying WSS, the stream itself stays
-authenticated, with no need to re-attach it per frame.
+fix it."* That claim has now been checked directly against Optimus's actual
+codebase (`/Users/umeshk/work/zax/optimus`) — **confirmed, and the real
+capability goes well beyond bidirectional byte relay**:
 
-**This is a materially stronger source than anything else cited as
-unconfirmed in this doc** — it's the first-party owner of the system in
-question, not a third party or an inference from documentation. Treated
-accordingly: this substantially raises confidence that Reason 2's cost is
-far lower than "new, cross-team engineering work," possibly close to zero.
-**Still pending the same bar every other claim in this doc is held to**:
-independent confirmation against Optimus's actual code, planned for later
-in this investigation. Until that happens, the rest of this doc's Design
-A/B analysis is left in place below as the fallback reasoning if the claim
-turns out to be narrower than it sounded (e.g. covering some WebSocket
-traffic but not specifically SignalR's framing, or requiring configuration
-this codebase doesn't yet set).
+- **`gateway-wss`** (a dedicated crate, own `DESIGN.md`) implements full RFC
+  6455 frame parsing (`frame.rs`), upgrade-handshake detection
+  (`detect.rs`), and a bidirectional relay (`relay.rs`, `run_wss_relay`) —
+  wired into the live request path in `gateway-proxy/src/pipeline.rs`:
+  `wss_enabled: true` is the actual default (line 308), and a real request
+  is dispatched through `is_ws_upgrade_request` (line 1226) and
+  `run_wss_relay` (line 1769), not a proposal sitting behind a disabled
+  flag.
+- **It doesn't just relay — it inspects.** `relay.rs` reassembles fragmented
+  frames into complete UTF-8 text messages and hands them to a pluggable
+  `WsMessageInspector` — the same content-inspection hook (`ws_inspect.rs`)
+  used for policy/DLP scanning elsewhere in Optimus. SignalR's JSON +
+  `0x1E`-framed messages ride on ordinary WebSocket **text** frames, so this
+  reassembly-and-inspect path applies to the Chathub traffic transparently,
+  with no SignalR-specific code needed.
+- **A real enforcement mode already exists**: `wss.enforce` (tracked as
+  ZSAI-8160) holds a message's frames until its policy verdict lands, and
+  substitutes a blocked message with a policy-notice frame — masked
+  correctly for whichever direction requires it. This is strictly more than
+  "forward it through" — it's the same block/substitute capability Optimus
+  applies to ordinary HTTP traffic, now extended to a live WebSocket stream.
+- **Fail-open discipline is explicit and tested**: an oversized message, a
+  `permessage-deflate`-compressed frame (RSV1, never inflated), or a
+  saturated inspector all forward the original bytes verbatim and are
+  separately counted (`messages_skipped_oversize`, `messages_skipped_compressed`,
+  `messages_skipped_saturated`) rather than silently blocking or hanging the
+  connection — real test coverage exists for each path.
 
-## Considered: bridge WSS↔HTTP around Optimus's HTTP-only relay
+**This retires the "pending independent confirmation" caveat this section
+carried previously.** Reason 2's cost is not "new, cross-team engineering
+work in a system outside this repo" — it's confirmed, shipped, enabled by
+default. The triple-JWT-attached-once-at-`Upgrade` detail from the original
+discussion is consistent with this design (the relay authenticates the
+stream at the handshake, not per frame). The Design A/B analysis below is
+kept as a record of the reasoning that applied *before* this was checked,
+and because the underlying architecture question it raised (bridging
+WSS↔HTTP conceptually) is now moot for Optimus specifically — Optimus
+speaks WSS natively, no bridging required.
+
+## Considered: bridge WSS↔HTTP around Optimus's HTTP-only relay (superseded — kept for the record)
+
+**Superseded by the confirmed finding above: Optimus's premise here was
+wrong.** This section was written on the assumption that `forward()` — the
+HTTP request/response tunnel every `BaseUrl` agent uses — was the *only*
+thing Optimus could do, which would have meant either bridging WSS into that
+shape or asking for new capability. Direct code inspection found a third,
+correct answer: Optimus already has a **separate, native WSS relay path**
+(`gateway-wss`, `run_wss_relay`) alongside `forward()`, so no bridging is
+needed at all for Optimus specifically. Kept below as a record of the
+reasoning that applied before this was checked — the analysis is still
+relevant if this codebase's *own* listener ever needs to speak to a
+WSS-only backend Optimus doesn't front, just not for this case.
 
 A natural next idea, raised and worked through in this investigation: since
 Optimus's `forward()` only ever speaks HTTP, could our own listener terminate
@@ -360,18 +397,20 @@ Reason 1, which nothing in this section touches.
 | Blocker | Status | Path forward, and its cost |
 |---|---|---|
 | **Reason 1** — no redirect lever | No app-level config lever exists; the endpoint is a fixed, wildcarded, tenant-wide domain | Ranked in priority order above: **3B** (per-process proxy settings, reusing an existing mechanism) closes this for free *if* the M365 client honors it — unconfirmed, check first. **4** (process-aware WFP/Network-Extension redirect) is the general fallback, buildable on infrastructure this codebase already has (`network_egress`), with new work needed on both platforms for the redirect action specifically. Options 1/2/DNS-wildcard all share the same disqualifying blast-radius problem and are superseded by 3B/4. Detailed design for 3B and 4 to follow in their own docs. |
-| **Reason 2** — persistent SignalR WebSocket | Confirmed protocol-level mismatch with this codebase's HTTP-only relay infrastructure; Microsoft documents naive TLS inspection breaking this traffic | **Update 2026-09-22**: Optimus's own owner states this capability already exists ("we basically are supporting that") — pending independent code confirmation. If confirmed, cost drops from "new cross-team engineering" to "verify and wire up." Design A (different backend) and the policy-losing bypass variant remain as fallbacks if the claim doesn't hold as stated. |
+| **Reason 2** — persistent SignalR WebSocket | **Closed, confirmed 2026-09-22 against Optimus's actual source.** `gateway-wss`'s `run_wss_relay` is live in the default request path (`wss_enabled: true`), reassembles and inspects text messages generically (covers SignalR transparently), and already has an enforcement mode (`wss.enforce`, ZSAI-8160) that holds and substitutes blocked messages. | No cost remaining — this is existing, shipped, enabled-by-default capability, not new engineering. Design A/B's bridging analysis is superseded and kept only as a record. |
 
-**Recommendation**: treat this as a resourcing and prioritization decision,
-not a closed door — and, as of 2026-09-22, a more promising one than the
-previous version of this doc concluded. Reason 1 has a real chance of
-closing for free via 3B, with the WFP/Network-Extension path (4) as a solid,
-buildable fallback reusing existing infrastructure rather than a from-scratch
-subsystem. Reason 2's cost may already be paid, per Optimus's own owner —
-pending the same code-level verification this doc holds every other claim
-to. Next steps: confirm 3B's applicability to the M365 client, confirm the
-Optimus claim against its actual code, and produce dedicated design docs for
-3B and 4 (in progress).
+**Recommendation**: treat this as a resourcing and prioritization decision
+for Reason 1 only — Reason 2 is closed. As of 2026-09-22, Optimus already
+does the hard part: native WSS relay, generic text-message reassembly and
+inspection (covering SignalR's framing without any Copilot-specific code),
+and a real enforcement mode that can hold and substitute a blocked message.
+Nothing about routing this traffic through Optimus once it's captured needs
+new engineering. That leaves Reason 1 as the only real remaining work:
+confirm whether 3B (per-process proxy, reusing the WebView2 lever) applies
+to the M365 client, with option 4 (process-aware WFP/Network-Extension
+redirect) as the buildable fallback if it doesn't — both already have their
+own design docs. Once Reason 1 closes, this is a straightforward wiring
+task, not an open research question.
 
 ## Sources
 
@@ -379,4 +418,5 @@ Optimus claim against its actual code, and produce dedicated design docs for
 - [Microsoft Copilot Cowork network endpoints (Preview)](https://support.microsoft.com/en-us/microsoft-365-copilot/cowork-network-endpoints) — Microsoft Support (official)
 - [Microsoft 365 URLs and IP address ranges](https://learn.microsoft.com/en-us/microsoft-365/enterprise/urls-and-ip-address-ranges) — Microsoft Learn (official)
 - [`cramt/m365-copilot-proxy` — M365 Copilot API docs](https://github.com/cramt/m365-copilot-proxy/blob/main/docs/m365-copilot-api.md) — third-party, reverse-engineered against a real working proxy (not Microsoft-published; cited for the specific SignalR/WebSocket protocol detail Microsoft's own docs don't spell out)
-- Internal design discussion, 2026-09-22 (`docs/intercept-design-transcript.txt`, `docs/whiteboard-intercept-design.{md,pdf}`) — first-party, including Optimus's own owner on the SignalR-tunnel capability claim; cited for the ranked network-layer alternatives and the Reason 2 update, both pending independent code-level confirmation
+- Internal design discussion, 2026-09-22 (`docs/intercept-design-transcript.txt`, `docs/whiteboard-intercept-design.{md,pdf}`) — first-party, including Optimus's own owner on the WSS-handling capability claim; cited for the ranked network-layer alternatives, and as the lead that prompted the Reason 2 code check below
+- Optimus source (`optimus` repo, `src/gateway-wss/`, `src/gateway-proxy/src/pipeline.rs`, `src/gateway-proxy/src/ws_inspect.rs`) — direct code inspection, 2026-09-22; confirms Reason 2 closed (see the update under Reason 2)

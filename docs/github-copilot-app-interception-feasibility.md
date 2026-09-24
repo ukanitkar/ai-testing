@@ -168,6 +168,50 @@ runtime-confirmed, for this app. Closing that gap would need reading this
 app's own decompiled request-building logic, or a live test with a real
 `custom` provider row and a listener to observe whether it's actually hit.
 
+### Update, 2026-09-24: a second static pass strengthens this, but doesn't close it
+
+Went back to `strings` on the same binary (v1.1.21) looking specifically for
+this app's *own* request-building code, not VS Code's. Found substantially
+more than the first pass, without fully closing the gap.
+
+**New architectural fact**: the app is built with **Tauri** — a Rust
+backend paired with `wry` (which renders through WKWebView on macOS,
+consistent with the WKWebView pattern found everywhere else in this
+investigation's Mac-side findings, not a coincidence).
+
+**The real internal module structure is recoverable from embedded Rust
+panic-location strings** — genuine source file paths compiled into the
+binary, not guessed:
+
+```
+model_providers/mod.rs               — generic provider logic (675+ lines)
+model_providers/kinds/github_copilot.rs — GitHub's own first-party path
+model_providers/azure_cli.rs         — Azure-specific handling
+model_providers/local/process_registry.rs — local model processes (Ollama)
+```
+
+**The strongest new evidence**: the binary contains a set of literal
+endpoint-path fragments consistent with an `AssistantUsageApiEndpoint`-shaped
+enum — `/chat/completions`, `/v1/messages`, `/responses`, and even a
+`ws:/responses` WebSocket variant. That's a real, selectable set of
+endpoint *suffixes*, correlating directly with the already-confirmed
+`wireApi` schema field (`'completions'|'responses'`). The only reason an
+app needs multiple selectable suffix variants at all is to append one of
+them to *something* at request time — structurally consistent with
+base-plus-suffix URL construction, though not a literal proof of it.
+
+**What this still doesn't show**: the actual concatenation happening in
+code. Rust's `format!` macro splits literal fragments at compile time in a
+way `strings` can't reassemble into "which variable gets joined with which
+literal" — that needs real disassembly, not available in this pass.
+
+**Net**: meaningfully stronger than the first pass — a real, app-specific
+structural signal (the endpoint-suffix enum, the confirmed module split
+between generic/Azure/local/first-party provider handling) rather than an
+inference borrowed from a different product. Still short of proof. The
+schema-vs-runtime distinction in the paragraph above stands; this update
+narrows it without closing it.
+
 ### Two distinct BYOK mechanisms exist — only one is reachable from a local proxy
 
 GitHub's enterprise admin console has its own, separate "Configure custom
@@ -263,6 +307,7 @@ lower confidence bar than the schema findings above:
 2. **The schema risk is real and confirmed, which changes the shape of
    "new product design work," not its necessity.** Two realistic
    directions:
+
    - Build careful, transaction-safe SQLite write tooling against this
      now-confirmed schema, with the same "narrow trust, confirm against
      live install, never guess a schema" discipline established elsewhere
@@ -270,11 +315,14 @@ lower confidence bar than the schema findings above:
      update, since GitHub doesn't publish this schema.
    - Push for a supported, non-GUI way to provision the per-device BYOK
      provider — GitHub's own docs confirm none exists today.
-3. **Before either direction, close the runtime-confirmation gap.** Confirm
-   — against this app's own code or a live test, not VS Code's — that a
-   `type='custom'` provider's real inference call actually reads
-   `base_url` at request time. Everything above this depends on that being
-   true for this app specifically.
+3. **Before either direction, close the runtime-confirmation gap.** A
+   second static pass (2026-09-24) found real, app-specific structural
+   evidence (the endpoint-suffix enum correlating with `wireApi` — see the
+   update above) but static analysis via `strings` has reached its
+   practical ceiling without actual disassembly. **The only path left to
+   fully close this is a live test**: a real `type='custom'` row and a
+   listener to observe whether it's actually hit. Everything above this
+   depends on that being true for this app specifically.
 
 ## Open questions
 
@@ -287,4 +335,7 @@ lower confidence bar than the schema findings above:
   publicly.
 - Does a `type='custom'` provider's inference call actually use the stored
   `base_url` for *this* app, not just VS Code's separate implementation of
-  the same idea? Unresolved — see the evidence-gap section above.
+  the same idea? Narrowed but unresolved as of 2026-09-24 — see the
+  evidence-gap section above. A verified backup of `~/.copilot/` exists
+  (`~/.copilot.backup-2026-09-24`) as a real restore point if a live test
+  is attempted next.

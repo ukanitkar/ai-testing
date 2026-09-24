@@ -404,5 +404,68 @@ lower confidence bar than the schema findings above:
 - New from the live test: is `ModelPolicy` (`allowedModels`,
   `disableModelInvocation`) a locally-settable config or an
   enterprise-server-pushed policy, and could it offer a supported way to
-  pin an interception-friendly provider without a direct DB write? Found via
-  `strings` (2026-09-24), not yet investigated.
+  pin an interception-friendly provider without a direct DB write?
+  **Resolved, 2026-09-24 — enterprise/server-pushed, not local config, not a
+  usable lever.** See the subsection below.
+
+### Update, 2026-09-24 (X1): `ModelPolicy` is enterprise/server-pushed, not local config
+
+Three pieces of live evidence, not just `strings`:
+
+**No local storage exists for it anywhere.** Checked every table in
+`data.db` (79 tables, including the `settings` singleton row), plus
+`session-store.db` and `repo-metadata-cache.db` — nothing resembling a
+model-policy/allowlist table. Unlike `model_providers`/`provider_models`
+(real, locally-writable, proven above), `ModelPolicy` has no on-disk
+counterpart to write to.
+
+**The actual mechanism was caught live, in this install's own running
+logs**, unprompted, under `copilot_runtime::storage::managed_settings` /
+`managed_settings::api_session`:
+
+```
+[managedSettings] device MDM: no policy present on this device
+[managedSettings] self-fetch starting for account https://github.com/ukanitkar
+[managedSettings] self-fetch complete ...: serverResolution=Live
+[managedSettings] server policy: none for this account (404/empty) from https://github.com
+[managedSettings] confirmed no policy served from fresh cache (age 2629474ms) from https://github.com
+[managedSettings] effective policy resolved: source=none, bypassDisabled=false, serverFetchFailed=false, policyHelperFailed=false, policyHelperFailClosed=false
+```
+
+A real two-source resolver: OS-level device MDM policy, and an
+authenticated per-account fetch to `https://github.com`, cached locally
+with a TTL (the "age Xms" logging). On this personal, unmanaged account
+both come back empty, hence `source=none` — the expected shape for an
+enterprise-admin-pushed policy that simply isn't configured here, not
+evidence the mechanism is inert.
+
+**It already has a real enforcement consequence**, seen in the same logs,
+proving it isn't dead code:
+
+```
+[managedSettings] applied: bypass-permissions mode DISABLED by enterprise policy (fail-closed: policy could not be determined) — /allow-all and permission escalation are now blocked
+[managedSettings] applied: no bypass restriction in force (managed policy absent)
+```
+
+Fail-**closed** when the policy can't be determined — restrictive by
+default, not permissive.
+
+**Correction to the original `strings`-only finding**: `disableModelInvocation`
+is not part of `ModelPolicy` at all — it's a **tool**-invocation permission
+field, paired with `disableUserInvocation` under `AgentCustomization`/rule
+customization. That was a false adjacency in the raw string dump, the same
+"`strings` can't reassemble which variable joins which literal" limitation
+already named elsewhere in this doc. `allowedModels` appears once, in a
+session-creation wire message beside `sessionId`/`clientName`/`systemMessage`
+— consistent with being populated *into* a session from this same
+MDM/server-resolved policy, not read from a user-editable file.
+
+**Net for this project**: `ModelPolicy` is the same category as the
+already-documented "Configure custom models" enterprise flow —
+GitHub-server/MDM-pushed, not a local lever. It offers no supported path to
+pin an interception-friendly BYOK provider; if anything it's a
+*restriction* mechanism (narrowing model choice), the opposite direction
+from what this project wants. It is also fail-closed, so a genuinely
+enterprise-managed device could plausibly have it interfere with BYOK
+provider selection too — unconfirmed, since this account has no managed
+policy to observe that against.

@@ -212,6 +212,65 @@ inference borrowed from a different product. Still short of proof. The
 schema-vs-runtime distinction in the paragraph above stands; this update
 narrows it without closing it.
 
+### Update, 2026-09-24 (live test): the gap is closed — confirmed directly, not inferred
+
+Ran the live test the previous update said was the only path left. On a
+real, currently-used installation of the app (v1.1.22):
+
+1. Quit the app; took a full, verified backup of `~/.copilot/` (`diff -rq`
+   confirmed byte-identical).
+2. Re-checked the live schema directly against the running install's
+   `data.db` rather than trusting the earlier snapshot — a real, deliberate
+   catch: the app auto-updated itself (1.1.21 → 1.1.22, via its own Tauri
+   updater) partway through this investigation, and the CHECK constraint on
+   `model_providers.type` that an earlier pass found is **gone** in the
+   current schema — `type` is now unconstrained. Exactly the "accept
+   re-validation on every app update" risk this doc names elsewhere,
+   caught in the act rather than assumed away.
+3. Inserted one `model_providers` row (`type: 'custom'`, `authKind: 'none'`,
+   `baseUrl` pointed at a local listener) and one matching `provider_models`
+   row, with the app fully closed — no concurrent writer.
+4. Relaunched, confirmed the row surfaced correctly in Settings → Model
+   providers (matching what was written, byte for byte), selected it as
+   the active model in a plain chat (not a Project/agentic session — those
+   lock to GitHub's own first-party models, e.g. `mai-code-1.1-flash`, and
+   never reach a custom provider at all), and sent a real prompt.
+
+**Result: the real inference call hit the listener.** The chat displayed
+this test's own fixed placeholder text verbatim, and the listener logged
+the actual `POST` that produced it. **The runtime-confirmation gap is
+closed — a `type='custom'` provider's real inference call does read the
+stored `base_url`, for this app specifically, not just VS Code's separate
+implementation.**
+
+Three further findings from the real request, beyond the core question:
+
+- **The app calls out to the official OpenAI Node.js SDK for BYOK
+  completions**, not a direct Rust HTTP call. The request carried
+  `x-stainless-lang: js`, `x-stainless-runtime: node`, and
+  `user-agent: OpenAI/JS 5.20.1` — the fingerprint of OpenAI's own
+  official JS client library. This Tauri/Rust app shells out to (or embeds)
+  a Node runtime specifically for this path.
+- **`authKind: 'none'` behaves exactly as the schema implied**: the request
+  carried `authorization: Bearer ` — present, empty — confirmed live, not
+  assumed from the field's name.
+- **The full first-party agent system prompt is sent to whatever `base_url`
+  names, unmodified.** The real request body (126 KB) carried GitHub's own
+  internal coding-agent system prompt — real tool-use and sub-agent rules,
+  not sanitized or stripped before being sent to a user-configured
+  third-party endpoint. Not quoted at length here since it's GitHub's own
+  proprietary prompt content, but worth recording as a real behavior:
+  pointing a custom provider at an observing proxy would see that prompt
+  in full, every time.
+
+Cleanup: quit the app again, deleted the two inserted rows (not a full
+backup restore, since real chat history had legitimately accumulated
+during the test and there was no reason to discard it), relaunched, and
+confirmed `model_providers`/`provider_models` were back to their exact
+pre-test state (one row, zero rows respectively). The verified backup
+(`~/.copilot.backup-pretest-2026-09-24`) was never needed but stayed
+available throughout.
+
 ### Two distinct BYOK mechanisms exist — only one is reachable from a local proxy
 
 GitHub's enterprise admin console has its own, separate "Configure custom
@@ -315,14 +374,13 @@ lower confidence bar than the schema findings above:
      update, since GitHub doesn't publish this schema.
    - Push for a supported, non-GUI way to provision the per-device BYOK
      provider — GitHub's own docs confirm none exists today.
-3. **Before either direction, close the runtime-confirmation gap.** A
-   second static pass (2026-09-24) found real, app-specific structural
-   evidence (the endpoint-suffix enum correlating with `wireApi` — see the
-   update above) but static analysis via `strings` has reached its
-   practical ceiling without actual disassembly. **The only path left to
-   fully close this is a live test**: a real `type='custom'` row and a
-   listener to observe whether it's actually hit. Everything above this
-   depends on that being true for this app specifically.
+3. **The runtime-confirmation gap is closed.** A second static pass
+   (2026-09-24) found real, app-specific structural evidence (the
+   endpoint-suffix enum correlating with `wireApi`), and a live test the
+   same day (see the update above) confirmed it directly: a real
+   `type='custom'` row's `base_url` was hit by the app's actual inference
+   call, observed on a listener. Everything above this is now confirmed
+   true for this app specifically, not inferred.
 
 ## Open questions
 
@@ -335,7 +393,16 @@ lower confidence bar than the schema findings above:
   publicly.
 - Does a `type='custom'` provider's inference call actually use the stored
   `base_url` for *this* app, not just VS Code's separate implementation of
-  the same idea? Narrowed but unresolved as of 2026-09-24 — see the
-  evidence-gap section above. A verified backup of `~/.copilot/` exists
-  (`~/.copilot.backup-2026-09-24`) as a real restore point if a live test
-  is attempted next.
+  the same idea? **Resolved, 2026-09-24 — confirmed by live test.** A real
+  `type='custom'` provider was inserted directly into a live install's
+  `data.db`, selected as the active model in a plain Chat, and a real
+  inference call hit the configured `base_url`. Test rows were removed and
+  the install verified back to its original state afterward. Two verified
+  backups remain on disk (`~/.copilot.backup-2026-09-24`,
+  `~/.copilot.backup-pretest-2026-09-24`) as an unused safety net, not as an
+  open restore point.
+- New from the live test: is `ModelPolicy` (`allowedModels`,
+  `disableModelInvocation`) a locally-settable config or an
+  enterprise-server-pushed policy, and could it offer a supported way to
+  pin an interception-friendly provider without a direct DB write? Found via
+  `strings` (2026-09-24), not yet investigated.

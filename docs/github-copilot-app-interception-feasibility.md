@@ -363,6 +363,23 @@ internet-reachable relay this org already controls (Optimus / the ZAX
 gateway). Read that way, the enterprise flow isn't a dead end, it's a
 **fleet-wide alternative to per-device DB writes entirely.**
 
+**Clarifying the actual goal, so this isn't re-litigated later: this is
+about the first hop, not about removing model access.** The intent is
+*not* to cut users off from real Copilot models. The registered "custom"
+provider is a **relay, not a replacement**: the local proxy (or, at
+enterprise scale, the registered custom endpoint) forwards the real
+inference request to Optimus for policy enforcement/observation, and
+Optimus forwards it on to the real Copilot backend — the real model's
+response flows back untouched. Users keep full real access to real
+Copilot models; only the network path is redirected. This is exactly the
+same "forward and observe, don't fabricate" pattern already proven by the
+live test above (the test listener fabricated a response only to make
+success unambiguous in a controlled test) and already used by every other
+adapter in this codebase (`copilot.rs`, the `vscode-copilot`
+CAPI-discovery relay). So the open technical questions below are about
+whether the *routing* can be forced this way — not about whether doing so
+would degrade what the user gets back.
+
 Confirmed directly from GitHub's docs source (`github/docs` repo, read via
 `gh api` — raw markdown, not a rendered/summarized page), not inferred:
 

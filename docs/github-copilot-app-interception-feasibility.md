@@ -530,8 +530,44 @@ Even with the scope granted:
   being masked behind a generic scope hint, not a real path to more
   access.
 
-**Net: X2 stays open.** Closing it needs someone with actual Copilot
-Business/Enterprise ownership — not reachable from this account.
+Independently confirmed via the actual GitHub UI, not just the API: the
+account's `Settings → Organizations` page lists `SquareX-AI` explicitly as
+**"Outside collaborator on 2 repositories"** — GitHub's own label for
+non-membership — and `Settings → Enterprises` reads **"You don't have any
+enterprises."** Two independent confirmations, same conclusion.
+
+**Tried the obvious next step: self-provisioning a throwaway enterprise
+specifically to test X2** (`AIGateWayTeam`, a real GitHub Enterprise Cloud
+30-day trial, created and email-verified). This closes off further, not
+opens up: a bare Enterprise Cloud trial has **no path to Copilot
+Business/Enterprise at all** — checked three places, all negative:
+
+- **Policies** tab: repository/rulesets/actions/member-privileges policies
+  only, no Copilot section anywhere in the sidebar.
+- **Billing and licensing → Overview**, "Usage by products": Actions,
+  Codespaces, Advanced Security, Enterprise, Git LFS, **Models** (GitHub
+  Models, the model marketplace/playground — a different product, not
+  Copilot's policy console), Packages, Sandbox, Spark. No Copilot line.
+- **Billing and licensing → Licensing**: Enterprise Cloud, Advanced
+  Security, Code Quality, Enterprise Server — no Copilot product listed,
+  no "add Copilot" option. **Settings** has no mention of Copilot either.
+
+**Checked before going further: would activating the paid Enterprise
+subscription fix this? No.** Per GitHub's own billing docs, Copilot
+Business ($19/user/month) and Copilot Enterprise ($39/user/month) are
+**billed separately from GitHub Enterprise Cloud** ($21/user/month) —
+Enterprise Cloud is a prerequisite for Copilot Enterprise, not a bundle
+that includes it. Converting the trial to paid would only remove the
+30-day limit on Enterprise Cloud/Advanced Security/Code Quality; a
+Copilot subscription would still need to be added separately, at real
+recurring per-seat cost. Given the question at stake is a documentation
+question, not a product decision, this was deliberately not purchased.
+
+**Net: X2 stays open**, now with three independent negative results
+(API, UI, and a real self-provisioned trial) rather than one. Closing it
+needs someone with actual Copilot Business/Enterprise ownership — not
+reachable from this account, and not worth paying for real per-seat
+licensing just to verify a doc.
 
 ### Update, 2026-09-24 (X1): `ModelPolicy` is enterprise/server-pushed, not local config
 

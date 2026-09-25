@@ -503,9 +503,35 @@ this isn't a VS Code-only or CLI-only control.
   (**Configure custom models**, **Configure models**) both reach the
   Copilot app, and the admin-console recipe is real — see the update
   below — but the "zero built-in models enabled" end state and the
-  OpenAI-compatible URL-field gap are both unconfirmed. Would need either
-  a real enterprise-owner console (not available in this investigation)
-  or a written response from GitHub to close.
+  OpenAI-compatible URL-field gap are both unconfirmed. **Checked,
+  2026-09-24: no enterprise/org-owner console available to test this from
+  this account** — see the subsection below. Would need someone with
+  actual Copilot Business/Enterprise ownership, or a written response
+  from GitHub, to close.
+
+### Update, 2026-09-24 (X2): no enterprise/org-owner console available to test this, from this account
+
+Attempted to verify programmatically via the GitHub API rather than
+assume. `gh auth status` showed the authenticated `gh` session
+(`ukanitkar`) had no `admin:org` scope, so the scope was granted
+(`gh auth refresh -s admin:org`, a real device-flow approval the user
+completed in their browser, not silently escalated).
+
+Even with the scope granted:
+
+- `user/memberships/orgs/SquareX-AI` returns **404** — not a scope gap, a
+  real signal: this account isn't an org **member**, only a repo-level
+  collaborator on `ai-protect`.
+- `orgs/SquareX-AI`'s `plan` and `two_factor_requirement_enabled` fields
+  are `null` — per GitHub's own API docs, these populate for
+  organization **owners** specifically, regardless of token scope.
+- Each new endpoint asked for a *different* additional scope
+  (`admin:org` → `user` → `copilot`) — the pattern of a permissions 404
+  being masked behind a generic scope hint, not a real path to more
+  access.
+
+**Net: X2 stays open.** Closing it needs someone with actual Copilot
+Business/Enterprise ownership — not reachable from this account.
 
 ### Update, 2026-09-24 (X1): `ModelPolicy` is enterprise/server-pushed, not local config
 

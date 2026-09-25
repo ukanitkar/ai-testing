@@ -279,8 +279,26 @@ the admin's key and endpoint are held by GitHub's platform and pushed down
 to clients through it. That one is useless for a local interception
 approach — GitHub's servers can't reach a `127.0.0.1` loopback listener. The
 relevant one is the **per-device** `byok_providers` table above, confirmed
-to work "without a signed-in GitHub account" and be "global per app
-install" — evaluated locally, by the app itself.
+to be "global per app install" — evaluated locally, by the app itself.
+
+**Correction, 2026-09-24, against GitHub's own docs source** (`github/docs`,
+`content/copilot/how-tos/github-copilot-app/use-byok-models.md`, read
+verbatim via `gh api`, not a rendered/summarized page): the earlier "works
+without a signed-in GitHub account" claim is **wrong**. The doc states
+plainly: *"You must sign in with a GitHub account to use the app"* — the
+part that's actually optional is the **Copilot plan**, not the account:
+*"you do not need a Copilot plan if you use your own model provider."*
+
+That same source also confirms two things worth having in writing rather
+than inferred from the schema: the per-device provider list is
+**documented**, not just schema-recovered — OpenAI, Azure OpenAI, Microsoft
+Foundry, Anthropic, Ollama, Foundry Local, LM Studio, and **"Any
+OpenAI-compatible HTTP endpoint"** — and the add-provider form fields are
+described as *"the display name, base URL, and API key"* (varies by
+provider). So the `type='custom'` + `base_url` row this doc's live test
+used is the **documented, supported shape** for the OpenAI-compatible case,
+not a reverse-engineered one — still explicitly **public preview, "subject
+to change,"** per the same page.
 
 **No file, CLI, or programmatic path is documented for the per-device
 version** — GUI-only (`Settings → Model providers → Add provider`).
@@ -297,7 +315,7 @@ field the flow exposes:
 | OpenAI, Anthropic, xAI | Yes — key entered, then a "fetch models" button queries the provider server-side | No URL field described — implies a fixed, known endpoint per provider |
 | AWS Bedrock, Google AI Studio | Listed as supported | Not detailed in what this doc surfaced |
 | Microsoft Foundry | Yes | **Yes** — explicit "Deployment URL" field, manually entered, plus manual per-model "Model ID" entries (no auto-fetch) |
-| OpenAI-compatible providers | Listed as supported | **Genuine documentation gap** — this category needs *some* base-URL field by definition, but the fetched page doesn't describe one anywhere |
+| OpenAI-compatible providers | Listed as supported | **Confirmed documentation gap, now verified against raw doc source** — this category needs *some* base-URL field by definition, but `data/reusables/copilot/byok-add.md` in `github/docs` (read verbatim, not summarized) walks through exactly two branches — "fetch models" for OpenAI/Anthropic/xAI, and a "Deployment URL" field for Microsoft Foundry — and gives OpenAI-compatible **no field of its own in either branch**, despite listing it as a supported provider one section earlier. Real gap in GitHub's own docs, not a fetch-tooling artifact. |
 
 Other fields: **Name** (shown in the model picker), **API Key** (with an
 explicit least-privilege-scoping recommendation), and **Access** scoping
@@ -316,10 +334,12 @@ lower confidence bar than the schema findings above:
   response. Reasoned from the security model, not a quoted statement that
   calls are proxied.
 - **Personal/per-device BYOK** (the `byok_providers` table): the opposite
-  architecture — the key lives in the local OS keychain, and the flow is
-  documented to work *"without a signed-in GitHub account."* No reason for
-  GitHub's servers to be in the loop; the client almost certainly calls the
-  configured provider (or a local `type='custom'` endpoint) **directly**.
+  architecture — the key lives in the local OS keychain (a GitHub sign-in
+  is still required to use the app itself, corrected above, but no Copilot
+  *plan* is needed for this path). No reason for GitHub's servers to be in
+  the loop; the client almost certainly calls the configured provider (or a
+  local `type='custom'` endpoint) **directly** — and this is exactly what
+  the live test above confirmed.
 - Either way, this doesn't change the operative conclusion: the enterprise
   flow is unreachable from a local proxy because the calling machine is
   GitHub's servers, not the endpoint; the per-device flow is reachable in
@@ -332,6 +352,64 @@ lower confidence bar than the schema findings above:
   it, personal BYOK is unavailable **org-wide**, before any DB-write
   question even applies — worth checking that policy's state as an early
   step in any rollout.
+
+## Update, 2026-09-24: a genuinely different strategy — become the enterprise's only configured provider, instead of intercepting per device
+
+Everything above targets the **per-device** BYOK path because that's the
+one a local proxy can reach. But the enterprise flow's reachability problem
+(GitHub's servers, not the endpoint, make the call) only rules it out for
+*local* interception — it doesn't rule it out if the "listener" is a real,
+internet-reachable relay this org already controls (Optimus / the ZAX
+gateway). Read that way, the enterprise flow isn't a dead end, it's a
+**fleet-wide alternative to per-device DB writes entirely.**
+
+Confirmed directly from GitHub's docs source (`github/docs` repo, read via
+`gh api` — raw markdown, not a rendered/summarized page), not inferred:
+
+**Both policies needed for this reach the GitHub Copilot app.** GitHub's
+own [supported-surfaces-for-policies](https://docs.github.com/en/copilot/reference/supported-surfaces-for-policies)
+reference table (`content/copilot/reference/supported-surfaces-for-policies.md`)
+marks both **"Configure custom models"** and **"Configure models"** as
+supported for the Copilot app, alongside IDEs, the CLI, and copilot.com —
+this isn't a VS Code-only or CLI-only control.
+
+**The recipe, per GitHub's own how-tos**
+(`content/copilot/how-tos/administer-copilot/manage-for-enterprise/enable-custom-models.md`,
+`.../manage-for-organization/manage-default-models.md`):
+
+1. Enterprise owner enables the **"Enable custom models"** policy, then
+   AI controls → Copilot → **Configure custom models** → **Add API key**
+   → provider, name, key, models. The custom model then "appear[s] at the
+   bottom of the model picker, under the enterprise name" for every
+   member of every org in the enterprise (or scoped to specific orgs via
+   the **Access** tab).
+2. Enterprise owner disables the GitHub-hosted models one by one under
+   **Models**, and sets the **"Default availability for released
+   models"** policy so unconfigured/new GA models don't auto-enable.
+   Enterprise-level choices are *enforced*, not advisory: an org sees a
+   🛡 shield icon next to a model the enterprise owner has locked, and
+   "cannot change the availability of this model."
+
+**Three honest caveats, not smoothed over:**
+
+- **The "zero GitHub-hosted models enabled" end state is never explicitly
+  described.** The per-model toggle plus the default-availability policy
+  make it look reachable, but no doc states what a user sees if every
+  built-in model is disabled and only a custom one remains — and the
+  Project/agentic-session model observed during the live test above
+  (`mai-code-1.1-flash`) may not even be a policy-governed catalog entry,
+  since that surface never showed a picker at all.
+- **Only Microsoft Foundry has a documented custom-URL field at the
+  enterprise tier too** — same gap as the per-device table above, verified
+  against the same `byok-add.md` source. OpenAI-compatible is a listed
+  supported provider type with no described URL field anywhere in the
+  add-key flow.
+- **This is still the server-side flow.** Whatever endpoint gets
+  registered has to be reachable *from GitHub's own infrastructure*, not
+  from a single device — an internet-facing relay, not a loopback
+  listener. It's a materially different architecture from the per-device
+  DB write proven above: one fleet-wide admin-console configuration
+  instead of a per-device write that has to survive every app auto-update.
 
 ## Why a direct database write still isn't a "wrong path" fix
 
@@ -381,6 +459,14 @@ lower confidence bar than the schema findings above:
    `type='custom'` row's `base_url` was hit by the app's actual inference
    call, observed on a listener. Everything above this is now confirmed
    true for this app specifically, not inferred.
+4. **Evaluate the enterprise "custom-only" posture as an alternative to
+   per-device DB writes entirely**, before investing further in #2. It
+   trades a per-device, update-fragile write for one fleet-wide admin
+   console configuration, confirmed by GitHub's own docs to reach the
+   Copilot app — at the cost of needing a real internet-reachable relay
+   (not a loopback listener) and leaving the "disable every GitHub-hosted
+   model" end state unconfirmed. See the update above for the full recipe
+   and caveats.
 
 ## Open questions
 
@@ -407,6 +493,19 @@ lower confidence bar than the schema findings above:
   pin an interception-friendly provider without a direct DB write?
   **Resolved, 2026-09-24 — enterprise/server-pushed, not local config, not a
   usable lever.** See the subsection below.
+- **X2**: does the enterprise "custom-only" posture (disable every
+  GitHub-hosted model, enable only an enterprise-registered custom
+  provider) actually work end to end for the GitHub Copilot app
+  specifically — reaching Project/agentic sessions and not just plain
+  Chats — and does GitHub's own infra actually relay to an
+  OpenAI-compatible custom endpoint despite the documented-gap URL field?
+  Confirmed from GitHub's own docs source that the two policies involved
+  (**Configure custom models**, **Configure models**) both reach the
+  Copilot app, and the admin-console recipe is real — see the update
+  below — but the "zero built-in models enabled" end state and the
+  OpenAI-compatible URL-field gap are both unconfirmed. Would need either
+  a real enterprise-owner console (not available in this investigation)
+  or a written response from GitHub to close.
 
 ### Update, 2026-09-24 (X1): `ModelPolicy` is enterprise/server-pushed, not local config
 

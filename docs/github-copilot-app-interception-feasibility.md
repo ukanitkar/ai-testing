@@ -533,6 +533,23 @@ this isn't a VS Code-only or CLI-only control.
   by placing the file ourselves (standing in for a real MDM push). Step 2
   (whether it can force a *specific* model active with zero manual
   picker interaction) is still open. See the subsection below.
+- **X4**: is any of this Mac-specific? **Open, not yet investigated.**
+  Every live test in this doc — the BYOK `data.db` write, the
+  `managed-settings.json` delivery test (X3), the workspace-stickiness
+  finding — has been run exclusively on macOS. Nothing here has been
+  checked on Windows. The app is the same cross-platform Rust/Tauri
+  binary, so the underlying logic is probably identical, but the
+  *delivery paths* are documented as genuinely different per OS —
+  Windows uses `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\GitHubCopilot`
+  (registry) and `%ProgramFiles%\GitHubCopilot\managed-settings.json`
+  (file) in place of macOS's Managed Preferences domain and
+  `/Library/Application Support/GitHubCopilot/managed-settings.json`.
+  Neither Windows path, nor the Windows `data.db` location/schema, has
+  been touched. "Probably identical" hasn't been treated as good enough
+  anywhere else in this investigation (e.g. the OpenAI-compatible
+  URL-field gap, the "without a signed-in account" correction), so this
+  is a real gap, not a formality — worth closing on the Windows test box
+  once GitHub Copilot app access is available there.
 
 ### Update, 2026-09-24 (X2): no enterprise/org-owner console available to test this, from this account
 

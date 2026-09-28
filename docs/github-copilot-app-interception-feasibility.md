@@ -621,11 +621,26 @@ chain:
    already planned elsewhere in this codebase) and forwards to
    **Optimus**.
 4. **Optimus must be told which real LLM this traffic should actually
-   reach** — genuinely unresolved. The forced picker entry carries only
-   a generic local identifier, not a real model name, so that mapping
-   has to live somewhere: the LLM proxy's own config, a claim inside the
-   triple-JWT, or an Optimus-side policy keyed to this agent. Not
-   designed yet.
+   reach** — genuinely unresolved, but checked against `main-08272026`
+   (`ai-protect`) rather than guessed. For already-supported agents
+   (Claude, Codex), this is the outbound `Host`/`:authority` value, not
+   a JWT claim: `Destination::resolve()`
+   (`ai-gateway/listener/src/kinds/mod.rs`) picks the client's own
+   CONNECT authority, or a static upstream host baked into the agent
+   adapter (`Claude::llm_upstream_host() -> "api.anthropic.com"`). The
+   triple-JWT (`AgentRecord.triple_jwt`,
+   `ai-gateway/creds-manager/src/store.rs`) is confirmed to be **pure
+   identity/auth** — it tells Optimus *who* is asking, tied to
+   `agent_id`/`tenant_id`/`blueprint_id`, never *what backend to relay
+   to*. Nothing in this repo maps a local `model_id` to a real backend
+   today — `git grep` for `byok`/`model_id`/`custom provider` across
+   `ai-gateway` on this branch returns nothing. **The pattern that fits
+   without inventing a new wire mechanism**: bind one listener *per real
+   backend*, and register one BYOK provider entry per real target
+   model, each pointing at a distinct local port — the same
+   one-fixed-upstream-per-adapter shape this codebase already uses,
+   just applied per-model instead of per-agent. Not built; a real design
+   option, not a confirmed one.
 5. Optimus relays to the real backend and back, per the already-drawn
    sequence diagrams.
 
@@ -634,6 +649,32 @@ generally). Steps 2–4 are unbuilt; step 5 is the already-documented
 forward-and-observe pattern this codebase uses elsewhere, not yet wired
 up for this app. The enterprise-delivery half of step 1 (X2) also
 remains untested.
+
+**"Enterprise delivery mechanism" — itemized, since it's really a stack
+of three separate things, not one:**
+
+1. **A GitHub Enterprise Cloud (or Enterprise Server) subscription** —
+   the account *type* itself, the umbrella structure that has an
+   enterprise-owner role and an AI controls / Copilot Policies console
+   at all. Confirmed obtainable via a real, disposable 30-day trial
+   (`AIGateWayTeam`).
+2. **A separate Copilot Business or Copilot Enterprise seat
+   subscription**, on top of (1) — confirmed via GitHub's own billing
+   docs to be billed independently ($19 or $39/user/month, on top of
+   Enterprise Cloud's own ~$21/user/month). Confirmed *not* included in
+   (1): the trial showed zero Copilot line items anywhere in Policies,
+   Billing, or Settings.
+3. **The enterprise-owner role itself**, specifically — GitHub's docs
+   require someone with that role to enable the "Enable custom models"
+   policy before an organization inside the enterprise can configure
+   custom models at all.
+
+This account has none of the three, confirmed three independent ways:
+the GitHub API (404 on org membership), the GitHub UI (outside
+collaborator only, zero enterprises), and the self-provisioned trial
+(got (1) for free, but (2) was never purchasable without a real,
+recurring charge — deliberately not paid for a documentation
+question).
 
 ### Update, 2026-09-24 (X2): no enterprise/org-owner console available to test this, from this account
 

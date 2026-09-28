@@ -525,6 +525,14 @@ this isn't a VS Code-only or CLI-only control.
   this account** — see the subsection below. Would need someone with
   actual Copilot Business/Enterprise ownership, or a written response
   from GitHub, to close.
+- **X3**: since X2 needs enterprise ownership this account doesn't have,
+  is there a cheaper, fully-local way to test whether the
+  `managed-settings.json`/MDM delivery tier actually works at all —
+  without any enterprise console? **Partially resolved, 2026-09-28 — yes,
+  the delivery tier itself is confirmed working**, tested entirely locally
+  by placing the file ourselves (standing in for a real MDM push). Step 2
+  (whether it can force a *specific* model active with zero manual
+  picker interaction) is still open. See the subsection below.
 
 ### Update, 2026-09-24 (X2): no enterprise/org-owner console available to test this, from this account
 
@@ -647,3 +655,78 @@ from what this project wants. It is also fail-closed, so a genuinely
 enterprise-managed device could plausibly have it interfere with BYOK
 provider selection too — unconfirmed, since this account has no managed
 policy to observe that against.
+
+### Update, 2026-09-28 (X3): the managed-settings/MDM delivery tier is confirmed working, tested entirely locally
+
+X2 stalled on needing real Copilot Business/Enterprise ownership. But the
+**delivery mechanism** underneath it — `managed-settings.json` / native
+MDM — doesn't need any of that to test, because both tiers are ultimately
+just files on disk. A real MDM (Workspace ONE/Jamf/Intune) is only *one*
+way to get those files onto a device; the app's resolver doesn't know or
+care how they got there. So the delivery layer is testable by placing the
+same file ourselves, with the root access already available on this Mac.
+
+**What was done**: quit the app, then (with the user running the actual
+`sudo` commands interactively, since this session has no TTY for password
+prompts) created `/Library/Application Support/GitHubCopilot/managed-settings.json`
+containing `{"model": "auto"}` — the exact value from the `copilot-cli#4959`
+bug report, for direct comparability — and relaunched.
+
+**Result: it worked, and worked better than expected.** Every prior log
+line this session showed `source=none`. After the change:
+
+```
+[managedSettings] device MDM policy loaded: bypassDisabled=false, keys=[model]
+[managedSettings] server policy fetch skipped: no authenticated GitHub host available
+[managedSettings] effective policy resolved: source=mdm, bypassDisabled=false, serverFetchFailed=false, policyHelperFailed=false, policyHelperFailClosed=false
+```
+
+Three things worth pulling out of this:
+
+- **The resolver logs the plain JSON file as `device MDM` policy**, not
+  as a separate "file-based" tier. GitHub's own docs describe native MDM
+  (plist/registry) and the JSON file as two distinct tiers with the
+  former outranking the latter — but in this app's actual logging, our
+  file was treated as the MDM tier outright. Either the internal
+  labeling calls every local, non-server check "device MDM" regardless
+  of source, or the two documented tiers collapse to the same code path
+  in this implementation. Not distinguished further; worth keeping in
+  mind if a real MDM profile is tried later and produces the same log
+  line.
+- **`keys=[model]` matches the shape of the known bug report's own log
+  line** (`keys=[model,permissions]` in `copilot-cli#4959`), confirming
+  the resolver parses the key correctly.
+- **A real, changed enforcement message**: `applied: no bypass
+  restriction in force (managed policy present but does not disable
+  bypass)` — different wording from every prior log line
+  (`managed policy absent`) — confirms the app recognizes a real policy
+  is now in force, not just logging the file's existence inertly.
+
+**Net: the delivery tier itself is proven.** What's still open is whether
+the app *acts* on a delivered value for model *selection* specifically —
+`copilot-cli#4959` reports the server-delivered `model` key being ignored
+by the desktop app's session-launch code specifically (only interactive
+CLI sessions honored it), and that bug is downstream of delivery, so it
+would plausibly affect this tier too. Not yet tested with a value other
+than `"auto"`.
+
+**A second, unplanned finding surfaced while checking this**: the app
+remembers a **per-workspace "last selected model"** that survives the
+underlying provider being deleted. Reopening the `ai-types` workspace
+(used in the original live test) showed the chat composer pre-filled with
+`custom:test-probe-2026-09-24/test-model (not available)` — a direct
+reference to the provider row that was deleted during that test's
+cleanup. This is unrelated to the `managed-settings.json` change (which
+set `"auto"`, not this identifier) — it's a separate, previously-unknown
+persistence mechanism: workspace-level model stickiness, independent of
+the managed-settings resolver.
+
+**Proposed next step (not yet run)**: recreate a `type='custom'` provider
+row with the *same* id the `ai-types` workspace already references
+(`test-probe-2026-09-24`/`test-model`), relaunch, and check whether a new
+chat in that workspace resolves it as already-selected with zero manual
+picker interaction — a materially simpler mechanism than the
+`managed-settings.json` route if it works, since it needs no MDM/policy
+plumbing at all, just matching a workspace's existing sticky reference.
+Paused here to return to the Microsoft 365 Copilot app track; the local
+`managed-settings.json` test file has not yet been reverted.

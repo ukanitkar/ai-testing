@@ -410,12 +410,15 @@ this isn't a VS Code-only or CLI-only control.
 **Three honest caveats, not smoothed over:**
 
 - **The "zero GitHub-hosted models enabled" end state is never explicitly
-  described.** The per-model toggle plus the default-availability policy
-  make it look reachable, but no doc states what a user sees if every
-  built-in model is disabled and only a custom one remains — and the
-  Project/agentic-session model observed during the live test above
-  (`mai-code-1.1-flash`) may not even be a policy-governed catalog entry,
-  since that surface never showed a picker at all.
+  described** in GitHub's own docs. **Resolved at the app level, 2026-09-28
+  — see the update below**: the app itself handles zero built-in models
+  and a single custom provider cleanly, confirmed by a real local test.
+  What's still unconfirmed is only the *enterprise delivery* half — GitHub
+  actually enforcing this state fleet-wide via the console — not whether
+  the app can survive it. The Project/agentic-session model observed
+  during the live test above (`mai-code-1.1-flash`) may still not be a
+  policy-governed catalog entry, since that surface never showed a picker
+  at all — untested in this round too.
 - **Only Microsoft Foundry has a documented custom-URL field at the
   enterprise tier too** — same gap as the per-device table above, verified
   against the same `byok-add.md` source. OpenAI-compatible is a listed
@@ -550,6 +553,87 @@ this isn't a VS Code-only or CLI-only control.
   URL-field gap, the "without a signed-in account" correction), so this
   is a real gap, not a formality — worth closing on the Windows test box
   once GitHub Copilot app access is available there.
+- **X5**: does the app itself survive a "zero built-in models, one custom
+  provider" state — no crash, correct picker, correct resolution for
+  existing *and* new sessions? **Resolved, 2026-09-28 — yes, confirmed
+  live.** See the update below. Enterprise *delivery* of this state is
+  still X2's open half, not this.
+- **X6**: the actual end-to-end pipeline this whole investigation is
+  aimed at needs the local proxy to forward through Optimus with
+  identity attached, and **Optimus has to be told which real LLM the
+  forced local model corresponds to** — the picker only carries a local,
+  generic identifier (e.g. `test-model-3`), not a real model name.
+  **Open, not yet designed or tested.** Where does that mapping live —
+  the LLM proxy's own config, a claim inside the triple-JWT, an
+  Optimus-side policy keyed to this agent? See the update below for the
+  full stated architecture; nothing past step 2 (the app's own forced
+  selection) has been built for this app yet.
+
+### Update, 2026-09-28 (X5/X6): zero built-in models confirmed live; the full pipeline's remaining shape stated explicitly
+
+**X5 — the "zero built-in models" end state, tested for real.** Rather
+than wait on enterprise access, simulated the end state directly: quit
+the app, deleted *every* `model_providers` row including the real,
+original `github_copilot` one (recorded byte-for-byte first for restore),
+added one fresh `type='custom'` provider (`Test Probe Model 3`, its own
+listener), pointed both the global `app_state.copilot-selected-model` key
+and every existing session's own `model`/`provider_id` columns at it, and
+relaunched.
+
+**Result: the app handled it completely cleanly.** No crash, no broken
+picker. The existing "test" session correctly resolved to `Test Probe
+Model 3` (shown by its friendly name, not a raw id — a healthier
+resolution than the raw-string display seen earlier when a session
+pointed at a since-deleted provider). Two real messages both got the
+real response from the listener. The model picker, expanded, showed
+**exactly one entry** — `Test Probe Model 3 (Third Test Probe)`,
+checkmarked — no `Auto`, no `GitHub Copilot`, nothing else. This is
+direct, live confirmation of the specific thing GitHub's own docs never
+state: the app is fine with zero built-in models, at least when reached
+this way. **What this does not confirm**: that GitHub's enterprise
+console can actually put a real device into this state — that's still
+X2, untouched by this test, which worked by direct database
+manipulation standing in for enterprise policy delivery.
+
+Two earlier test rounds the same day fed into this, worth keeping for
+the record: (1) a genuinely new session picked up a registered custom
+provider with zero manual clicks, driven by the global
+`copilot-selected-model` key — but (2) changing that global key
+afterward did **not** retroactively change an *already-existing*
+session's own stored model reference; only a manual picker reselection
+does. So the global key seeds new sessions; it doesn't reach back into
+old ones. The picker itself was confirmed to list every registered
+provider correctly at every step — an earlier "I can't get back to the
+old model" concern turned out to be a UI-popup-not-expanded issue, not a
+real gap, confirmed directly by expanding it.
+
+**X6 — the stated end-to-end architecture, so it isn't re-derived
+later.** The one forced model in the picker is a means, not the goal —
+the intent is *not* to reduce what the user can do. The full intended
+chain:
+
+1. End user is restricted to the one model this solution provides (what
+   X5 just confirmed the app tolerates).
+2. Selecting it sends the real inference call to a **local LLM proxy**
+   (not yet built for this app — the live tests above used a bare
+   listener standing in for it).
+3. The LLM proxy attaches a **triple-JWT** (the credential mechanism
+   already planned elsewhere in this codebase) and forwards to
+   **Optimus**.
+4. **Optimus must be told which real LLM this traffic should actually
+   reach** — genuinely unresolved. The forced picker entry carries only
+   a generic local identifier, not a real model name, so that mapping
+   has to live somewhere: the LLM proxy's own config, a claim inside the
+   triple-JWT, or an Optimus-side policy keyed to this agent. Not
+   designed yet.
+5. Optimus relays to the real backend and back, per the already-drawn
+   sequence diagrams.
+
+Confirmed so far: step 1 only (X5, and the per-device DB-write path more
+generally). Steps 2–4 are unbuilt; step 5 is the already-documented
+forward-and-observe pattern this codebase uses elsewhere, not yet wired
+up for this app. The enterprise-delivery half of step 1 (X2) also
+remains untested.
 
 ### Update, 2026-09-24 (X2): no enterprise/org-owner console available to test this, from this account
 

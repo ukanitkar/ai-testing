@@ -736,6 +736,10 @@ needs someone with actual Copilot Business/Enterprise ownership — not
 reachable from this account, and not worth paying for real per-seat
 licensing just to verify a doc.
 
+**Tracked in [HD-31209](https://jira.corp.zscaler.com/browse/HD-31209)**
+— ticket opened 2026-09-28 for enterprise GitHub Copilot app access, the
+path to actually closing this.
+
 ### Update, 2026-09-24 (X1): `ModelPolicy` is enterprise/server-pushed, not local config
 
 Three pieces of live evidence, not just `strings`:

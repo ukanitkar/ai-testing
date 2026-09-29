@@ -8,9 +8,12 @@ agent identity? Answer: **yes, confirmed live** — a real `200` with real
 model output, through the real gateway, signed with a real triple-JWT.
 
 Companion to `ai-testing/docs/copilot-app-mitm-proxy-setup.md` (the traffic
--decryption side-quest that happened partway through this) and
+-decryption side-quest that happened partway through this),
 `ai-broker-work/ai-broker-llm-brokering.md`'s "Live verification (2026-08-11)"
-section (the historical attempt this one re-runs and gets further than).
+section (the historical attempt this one re-runs and gets further than), and
+`ai-testing/docs/copilot-desktop-windows-setup.md` (install + real bearer
+token acquisition on Windows — the piece this run didn't need since it was
+done on macOS, but the disposable-VM run below will).
 
 ## The final proof, as a sequence
 
@@ -43,7 +46,7 @@ sequenceDiagram
 | **`copilot-desktop-simple`** | Dev harness: real listener bound against **real Optimus**, signed with a **borrowed, real** agent's credentials | `ai-protect/ai-gateway/copilot-desktop-simple/` |
 | **`activate-agent`** (new, built during this session) | Runs the real `zax_sdk::enroll` pipeline (Vector register/poll → Bumblebee activate → token-exchange) for one agent id, outside the full continuous service | `ai-protect/ai-gateway/activate-agent/` |
 | **`approve_agent.py`** | Existing admin tool: OIDC admin login → `POST .../agent-operations/{id}/transition {"status":"approved"}` | `zax-sdk-python/script/approve_agent.py` (+ `script/admin.yaml`, tenant `aibroker-engineer.zslogin.net`, `cloud: prod`) |
-| **`get_copilot_token.sh`** | Real GitHub OAuth device flow → real Copilot bearer | `ai-protect/ai-gateway/scripts/get_copilot_token.sh` (sibling `main-08272026-vscode-copilot` branch) |
+| **`get_copilot_token.sh`** | Real GitHub OAuth device flow → real Copilot bearer | `ai-protect/ai-gateway/scripts/get_copilot_token.sh` (sibling `main-08272026-vscode-copilot` branch) — see `copilot-desktop-windows-setup.md` for a Windows/PowerShell translation |
 | **mitmproxy** (venv, temporary) | Decrypted the app's own first-party ("Auto") traffic to find its real endpoint + quota data | see `copilot-app-mitm-proxy-setup.md` |
 | **`~/.zsai-gateway/.credentials.zip`** | Real, persisted triple-JWT/HMAC for the `codex` agent id, written by `activate-agent` | real, still on disk |
 | **`~/.zsai-gateway/copilot-upstream-token.txt`** | Real Copilot bearer, from `get_copilot_token.sh` | real, still on disk |

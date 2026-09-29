@@ -60,6 +60,17 @@ if you get 401 bad_http_signature, switch to http://`. If the post-caps probe
 returns `bad_http_signature`, express the `--upstream` as `http://<host>` (let
 the gateway do the upstream TLS) rather than `https://`.
 
+**Update (2026-09-29):** re-ran this exact chain (register → approve →
+activate → token-exchange) for a fresh agent on the same tenant — see
+`ai-testing/docs/copilot-desktop-real-optimus-e2e.md` for the full run. Got
+the identical `intersected_caps: []` result, but this time **brokering was
+NOT blocked**: a real request through real Optimus, signed with that empty
+-caps triple JWT, returned a real `200` from the real provider. Reported
+separately: the gateway currently **ignores** `intersected_caps`. So the
+"grant capabilities" action item above is stale for the current gateway
+behavior — re-verify against the gateway's actual enforcement before relying
+on either state.
+
 ## How the endpoint reaches Optimus (traced from `optimus/config`)
 
 - **Optimus is a cloud gateway**, not endpoint-local. The SDK derives its URL

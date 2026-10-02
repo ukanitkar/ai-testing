@@ -153,36 +153,80 @@ answer ("how does the *authorized* app's traffic reach Optimus").
 - Only meaningful paired with 1 or 2 — on its own it can make the Copilot
   app's direct path *fail*, not succeed through the proxy.
 
-## Recommendation
+## Recommendation — adopted plan (2026-10-02)
 
-**Build approach 2 (`HTTPS_PROXY`) as the real target architecture.** It's
-the only one that satisfies all five stated goals — every model, no id
-mapping problem, token handling nearly free, no fictional provider — and
-it's the only one not already disproven by this session's own live testing.
-Approach 1 (BYOK) is the opposite: every one of its real, confirmed failure
-modes (unforced selection, non-durable catalog edits, reverse-engineered
-schema) surfaced this session, not hypothetically.
+**Decision: approach 2 (`HTTPS_PROXY`) now, approach 3 (`network_egress`
+redirect) later. Approach 1 (BYOK) is dropped — not just de-prioritized, not
+even kept as a fallback.** Earlier this document hedged with "use approach 1
+as the near-term fallback" in case approach 2's listener wasn't ready in
+time for the Windows VM test. That hedge is withdrawn: approach 1's actual
+failure modes (unforced selection, non-durable catalog edits against a live
+account resync, a reverse-engineered schema, a confusing duplicate provider
+entry in the picker) all surfaced live this session, not hypothetically, and
+none of them are fixable without approach 2's own machinery anyway — there
+is no scenario where shipping approach 1 first saves real time.
 
-**Use approach 1 as the near-term fallback, not the target.** It's the only
-option proven working *today*, so it's the reasonable thing to carry into
-the imminent Windows VM test if approach 2's listener isn't ready in time —
-but it should be understood as a stopgap, not where this ends up.
+**Why this is better than the comparison above initially suggested, not just
+equally good:** skipping the database entirely removes every problem that
+actually consumed this session's debugging time — there is no catalog to
+keep durable against the live resync, no picker-forcing fight, no schema to
+keep re-validating against the app's auto-updates, and no risk of a stale
+`provider_id` reference showing "(not available)" in an old session. It also
+looks cleaner in the UI: users see their real models, under their real
+names, with no parallel "GPT-4o via Zscaler AI Protect" entry sitting
+alongside them — the brokering is invisible rather than a visible, separate
+choice someone has to make correctly every time.
 
-**Layer approach 3 on top once 2 is real, starting on Windows where it's
-free.** It doesn't replace 2; it closes the gap 2 leaves open (nothing stops
-a user, or a different process, from reaching `api.githubcopilot.com`
-directly instead of through the proxy). On Windows this costs nothing extra
-— pure policy authoring. On macOS it's a real, separate project to scope
-later; don't block approach 2 on it.
+**What's already de-risked, not just hoped for:** the app's HTTP client
+genuinely honors a process-scoped `HTTPS_PROXY` for its real first-party
+traffic (captured live, including the actual `/models` call and its real
+response). The app's first-party requests already carry their own valid
+bearer, so the listener has nothing to mint — pass-through only, same as
+every other brokered agent. And the CA-trust question is answered, not
+assumed: the live `/models` capture succeeded with a real `200` through a
+CA installed into the system keychain, meaning the app's Rust backend does
+accept a keychain-trusted CA for TLS interception — exactly the mechanism a
+real listener needs.
 
-**Concretely, next steps in order:** (1) build the TLS-terminating listener
-kind for the `/responses` wire shape and pass-through auth, reusing the
-existing `Https`/`Dual` transport and local-CA infrastructure; (2) solve
-macOS "every launch" enforcement for the env var (wrapper script as the
-pragmatic interim, OS-level work as the real fix, tracked separately); (3)
-prove one enterprise model end-to-end through real Optimus, not just direct
-curl; (4) author the Windows `network_egress` allow/block rule as a
-same-cost hardening addition once 2 is live there.
+**What's genuinely new work, with one nuance worth not glossing over:** a
+new listener kind terminating TLS for `api.business.githubcopilot.com`,
+routed by Host (the client is talking to the real hostname now, not a
+`baseUrl` override), passing the client's own `Authorization` through,
+signing with the triple JWT, relaying through Optimus. This is closer in
+shape to the existing `Https`/`Dual` listener transport (already used for
+other agents' forward-proxy legs) than to the BYOK-specific
+`copilot_desktop` kind, and should be built as a sibling to that
+infrastructure. The nuance: `agent-manager`'s existing
+`LlmRouting::ForwardProxy` (what Copilot CLI/Gemini CLI use) looked
+reusable at first, but only half of it transfers — it writes the proxy URL
+into the *agent's own persisted config file*, which is what makes it
+durable on every launch for those tools. The desktop app has no such field
+(checked `config.json` and every `app_state` key — nothing proxy-related
+exists), so only `ForwardProxy`'s listener-side half (the TLS/local-CA
+infra) applies here; the file-writing half does not.
+
+**"Now" vs. "later," stated precisely, matching the phasing actually
+adopted:** *now* means a manually-set `HTTPS_PROXY` env var, same mechanism
+validated live this session — no durable "every launch" story yet, and that
+gap is known and accepted for this phase, not overlooked. *Later* means
+`network_egress`'s redirect extension (the `NETransparentProxyProvider` /
+WFP-callout design docs) removes that dependency entirely, enforcing the
+same routing regardless of launch method. Until then, on Windows, plain
+`network_egress` block/allow (already shipping, zero new code) is worth
+authoring as a **hardening layer now**, even before the redirect work lands
+— it doesn't replace the `HTTPS_PROXY` routing, but it closes the "a user
+just bypasses it by launching normally" gap on one platform today, which the
+redirect work will later close everywhere.
+
+**Concretely, next steps in order:** (1) build the new listener kind
+described above — TLS termination for `api.business.githubcopilot.com`,
+Host-based routing, pass-through auth, triple-JWT signing to Optimus; (2)
+prove one real enterprise model (`claude-sonnet-5` or similar) end-to-end
+through *real* Optimus, not just direct curl — still unproven; (3) author
+the Windows `network_egress` block/allow rule as the near-term hardening
+layer, since it costs nothing new; (4) pursue the `network_egress` redirect
+work (both design docs) as the durable "every launch" fix, tracked as its
+own, separate, longer-lead-time effort — not a blocker on (1)–(3).
 
 ## Appendix: detailed Q&A (2026-10-02)
 

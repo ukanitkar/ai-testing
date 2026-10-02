@@ -1,0 +1,5 @@
+
+# mitmproxy capture output -- contains real, live credentials (bearer tokens),
+# never meant to be committed.
+ai-gateway/scratchpad/mitm_bodies.log
+ai-gateway/scratchpad/__pycache__/

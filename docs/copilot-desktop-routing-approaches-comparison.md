@@ -172,12 +172,23 @@ from `HTTPS_PROXY`, which is already approved to actually test.
 redirect) later. Approach 1 (BYOK) is dropped — not just de-prioritized, not
 even kept as a fallback.** Earlier this document hedged with "use approach 1
 as the near-term fallback" in case approach 2's listener wasn't ready in
-time for the Windows VM test. That hedge is withdrawn: approach 1's actual
-failure modes (unforced selection, non-durable catalog edits against a live
-account resync, a reverse-engineered schema, a confusing duplicate provider
-entry in the picker) all surfaced live this session, not hypothetically, and
-none of them are fixable without approach 2's own machinery anyway — there
-is no scenario where shipping approach 1 first saves real time.
+time for the Windows VM test. That hedge is withdrawn.
+
+**The canonical reason BYOK is closed, stated precisely:** it requires
+**undocumented, reverse-engineered SQLite modifications** to the Copilot
+desktop app's own `data.db` — a schema GitHub never published and never
+committed to keeping stable release to release — and **the app's own
+enterprise-subscription sync can silently overwrite those changes**
+(confirmed live: a real Business-seat account's model-catalog resync
+restored every deleted row on the very next launch, undoing the edit
+entirely). Those two properties together — unsupported modification of a
+private schema, plus a live, out-of-our-control sync that can erase it at
+any time — are why this is dropped outright, not deprioritized. The
+unforced-picker-selection problem and the confusing duplicate provider entry
+in the UI, both observed during testing, are downstream symptoms of this,
+not separate root causes — and none of them are fixable without approach
+2's own machinery anyway, so there's no scenario where shipping approach 1
+first would have saved real time.
 
 **Why this is better than the comparison above initially suggested, not just
 equally good:** skipping the database entirely removes every problem that

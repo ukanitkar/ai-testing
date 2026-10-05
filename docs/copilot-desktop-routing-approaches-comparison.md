@@ -190,6 +190,80 @@ CA) gets the actual response body in seconds — that's what separated "a
 Zscaler block page" from "an Optimus 403" here, and nothing short of
 capturing the real body would have told the two apart.
 
+**Update, 2026-10-05 — step (2a) of the validation sequence done: the same
+test, repeated for real on a Windows laptop (ukanitkar's corporate dev
+machine), not just macOS.** Four things worth recording, in the order they
+were hit:
+
+1. **The harness's own Windows gap (flagged in `1fa4d1ac`'s own comment —
+   "revisit on the actual Windows laptop") is now closed.** The local CA
+   private key's owner-only permission restriction was Unix-only
+   (`chmod 0600`); swapped for the already-existing, already-tested
+   `zax_sdk::common::secure_file::restrict_to_owner` (the same owner-only-DACL
+   helper `creds-manager` uses for `.credentials.zip`), rather than writing
+   new, blind Win32 ACL code. The harness's usage doc/runtime log also gained
+   Windows-specific steps (`certutil -user -addstore Root` for CA trust, a
+   PowerShell env-scoped launch) selected via `cfg!(windows)` — previously
+   Mac-only text. `cargo test -p zax-sdk`'s Windows ACL round-trip test passes
+   for real on this machine (`ai-protect` commit `c53a6882`).
+2. **No credential store existed on this laptop at all** — unlike the Mac,
+   nothing had ever enrolled a real agent here, so the harness's `--borrow-
+   agent` had nothing to borrow. `activate-agent` was used to mint one, which
+   surfaced a real gap in that dev tool: unlike the production enrollment
+   path (`agent-manager`'s `enrol.rs::registry_agent_type`), `activate-agent`
+   passes `--agent` straight through as the literal `agent_type` with **no**
+   translation. `--agent copilot-desktop` therefore 400s at Vector
+   (`"agent.agent_type \"copilot-desktop\" is not one of the allowed
+   frameworks"`) — `--agent custom` is required to match what the real path
+   actually sends. One admin-approval cycle was needed for the resulting
+   `agent_id` (`71066f59-8225-4f9a-acf1-82e575961c20`), same `pending_approval`
+   /180s-timeout-then-re-register-after-approval pattern already seen on the
+   VM in `TOKEN_EXCHANGE_AUTH_BUG.md`. This also re-confirmed that fix
+   (`41aa2bc8`) end-to-end on a second, independent, fully-fresh registration:
+   register (200) → approved (poll #1) → activate (200) → token-exchange
+   (200, 2627 bytes).
+3. **First proxied run: every single request came back `403`.** Initially
+   indistinguishable from an Optimus authorization rejection from the
+   harness's own status-only log — but the real GitHub Copilot app's own
+   error surfaced a literal Zscaler block-page body ("Zscaler makes the
+   internet safe for businesses..."), not JSON from our backend. Exactly
+   gotcha #3 above, reproduced on a different OS and a different Zscaler
+   client: something on this laptop was intercepting traffic to
+   `gateway.zsagentic.ai`. Confirmed resolved the same way — once addressed,
+   background telemetry calls (`POST .../TelemetryAPI/SubmitMetrics ->
+   cafe.github.com`) flipped from `403` to `200` first, then a real inference
+   call followed (`POST /responses -> api.business.githubcopilot.com
+   http/1.1 200 in 1834ms`). **Killing a Zscaler client is the same
+   MDM-policy caution as gotcha #3, not a casual workaround — treat it the
+   same way here.**
+4. **A model-picker scare that turned out to be the already-documented stale-
+   session gotcha, not a new bug.** After the Zscaler fix, the app's model
+   picker showed only "Auto" and no named models — looked at first like the
+   relay was silently losing the `/models` response body despite a `200`
+   (confirmed it wasn't platform/account entitlement: same account,
+   `ukanitkar`, shows the full catalog on the Mac). Restarted the harness with
+   `RUST_LOG=debug` to get past status-only logging; the `/models` calls
+   were in fact repeatedly succeeding (several real `200`s). What was actually
+   failing, repeatedly, was one specific pre-existing chat session:
+   `POST /agents/sessions/67ffb9fe-.../events -> 403`, three times, the same
+   session id that had 403'd on the very first (pre-Zscaler-fix) attempt too.
+   Starting a **new** chat session — not continuing the stale one — resolved
+   the picker immediately, matching gotcha #1's own already-documented fix
+   exactly ("reselecting a model... or starting a fresh one"). One real,
+   separate, self-healing transient hit along the way, logged for the record:
+   the first `/models` call after a relaunch failed with `"the gateway
+   request failed: operation was canceled: connection was not ready"` (a
+   `502` to the client), succeeding immediately on retry — not yet
+   root-caused, didn't block anything.
+
+**Net result: Windows confirmed working end-to-end** — proxy relay, real
+model catalog, named-model selection, and a real inference response, matching
+the Mac confirmation. Nothing found here needed a Windows-specific code
+change to the actual relay (`listener::kinds::https`) itself; the fixes were
+all in test-harness tooling (`copilot-desktop-forward-proxy`'s own CA-key ACL,
+`activate-agent`'s agent-type translation) or environment (the Zscaler
+client). **Next: step (2b), the disposable/research VM.**
+
 ## Approach 3: `network_egress` (per-process allow/block)
 
 **What it is.** `ai-protect`'s existing settings-controlled feature: kernel
@@ -328,10 +402,11 @@ done, confirmed live, twice, (`POST /v1/messages ->
 api.business.githubcopilot.com http/1.1 200`), not just direct curl — the
 second run also cleared a real Zscaler-tunnel interference issue (see the
 gotchas above), so this is the more thoroughly-validated of the two.
-**The validation sequence from here, stated explicitly: (2a) repeat this
-exact same test on a Windows laptop, (2b) then finally on the
-disposable/research VM** — the plan's own original final-verification
-target, never a personal machine. Separately: (3) author the Windows
+**The validation sequence from here, stated explicitly: (2a) ~~repeat this
+exact same test on a Windows laptop~~ — done, confirmed live, 2026-10-05 (see
+the update above); (2b) then finally on the disposable/research VM** — the
+plan's own original final-verification target, never a personal machine.
+Separately: (3) author the Windows
 `network_egress` block/allow rule as the near-term hardening layer, since it
 costs nothing new; (4) decide whether `copilot-desktop-forward-proxy`'s
 approach gets wired into `agent-manager` as a real, shippable `LlmRouting`

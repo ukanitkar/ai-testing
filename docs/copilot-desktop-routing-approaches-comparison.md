@@ -324,8 +324,14 @@ redirect work will later close everywhere.
 listener kind at all: `listener::kinds::https` already did everything
 required, reused as-is by the new `copilot-desktop-forward-proxy` harness;
 (2) ~~prove one real enterprise model end-to-end through real Optimus~~ —
-done, confirmed live (`POST /v1/messages -> api.business.githubcopilot.com
-http/1.1 200`), not just direct curl. Remaining: (3) author the Windows
+done, confirmed live, twice, (`POST /v1/messages ->
+api.business.githubcopilot.com http/1.1 200`), not just direct curl — the
+second run also cleared a real Zscaler-tunnel interference issue (see the
+gotchas above), so this is the more thoroughly-validated of the two.
+**The validation sequence from here, stated explicitly: (2a) repeat this
+exact same test on a Windows laptop, (2b) then finally on the
+disposable/research VM** — the plan's own original final-verification
+target, never a personal machine. Separately: (3) author the Windows
 `network_egress` block/allow rule as the near-term hardening layer, since it
 costs nothing new; (4) decide whether `copilot-desktop-forward-proxy`'s
 approach gets wired into `agent-manager` as a real, shippable `LlmRouting`

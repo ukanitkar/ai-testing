@@ -136,6 +136,60 @@ confirmed live, not just designed:**
   Fixed by either reselecting a real model in that session or starting a
   fresh one (new sessions pick up the global default with no manual step).
 
+**Three more operational gotchas hit immediately after the above, worth
+recording precisely since they cost real debugging time before being
+isolated — none are architectural problems, all are harness/environment
+friction:**
+
+1. **The harness minted a brand-new CA on every restart**, silently
+   invalidating whatever the operator had just trusted in Keychain. Fixed
+   in code: it now persists `cert_pem`/`key_pem` to disk on first run and
+   reuses them on every subsequent run, matching the real product's own
+   `local_ca_credentials` doc comment ("created on first use and reused
+   thereafter"). Restarting the harness no longer requires re-trusting
+   anything.
+2. **macOS Keychain trust got ambiguous across two CAs sharing an identical
+   subject DN** (`CN=Zscaler Agentic Local Root CA` — the fixed subject
+   `gateway_util::ca::generate()` always mints). `security
+   find-certificate`/`dump-trust-settings` returned confusing, seemingly
+   contradictory results while two certs with that same subject but
+   different keys coexisted. Resolved by deleting the stale one by its
+   exact SHA-256 fingerprint before re-adding the current one — collisions
+   on subject text, not the actual key, are the thing to watch for here.
+   `security add-trusted-cert -r trustRoot -k <keychain> <ca.pem>` against
+   the login keychain works without `sudo` and is more reliable than the
+   Keychain Access GUI import flow for this.
+3. **A real triple JWT got rejected within under a minute of minting it**,
+   far faster than the ~20-minute window observed earlier — turned out to
+   have nothing to do with the credential at all. A `curl` made *directly
+   through the harness* (`curl -x http://127.0.0.1:<port> --cacert
+   <ca.pem> https://...`) surfaced the real response body, which the
+   harness's own logs don't capture (status/timing only): a genuine
+   Zscaler block page (`server: Zscaler/6.2`), not an Optimus `403` body at
+   all. **A second, separate Zscaler client — `/Applications/Zscaler/
+   Zscaler.app` plus its `com.zscaler.zscaler.TRPTunnel` system
+   extension — was intercepting this machine's traffic to
+   `gateway.zsagentic.ai`.** This is distinct from "ZCC" (the client this
+   session has otherwise turned off repeatedly for Optimus testing) —
+   confirmed by process start time (`ps -o lstart`) lining up almost
+   exactly with the gap between a successful run and the first failure, and
+   by the fact that disabling ZCC alone left this one still running.
+   Stopping it (no menu-bar "disconnect" option existed; required killing
+   the processes directly, which **is a real MDM-policy question, not a
+   casual workaround** — this profile sets `OnDemandUserOverrideDisabled:
+   1`, so treat doing this as something to clear with whoever owns that
+   policy before relying on it again, not a standing procedure) resolved it
+   immediately, confirmed by a clean `curl` response before even
+   relaunching the app.
+
+**The debugging technique worth keeping, independent of this specific
+incident:** when something fails with an opaque status code and the
+harness's own log only has status + timing, `curl` *through the harness
+itself* (as a real CONNECT-proxy client, using the harness's own trusted
+CA) gets the actual response body in seconds — that's what separated "a
+Zscaler block page" from "an Optimus 403" here, and nothing short of
+capturing the real body would have told the two apart.
+
 ## Approach 3: `network_egress` (per-process allow/block)
 
 **What it is.** `ai-protect`'s existing settings-controlled feature: kernel

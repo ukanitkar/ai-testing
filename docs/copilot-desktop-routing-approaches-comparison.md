@@ -153,7 +153,20 @@ answer ("how does the *authorized* app's traffic reach Optimus").
 - Only meaningful paired with 1 or 2 — on its own it can make the Copilot
   app's direct path *fail*, not succeed through the proxy.
 
-## Recommendation — adopted plan (2026-10-02)
+## Recommendation — adopted plan (2026-10-02, ratified by the team 2026-10-04)
+
+**Update, 2026-10-04 — this is now an actual team decision, not just this
+document's own engineering recommendation.** Confirmed at a team meeting:
+the plan is to test a solution based on `HTTPS_PROXY` for the short term,
+with the team explicitly accepting that it is **not enforceable** and
+**depends on end-user cooperation** — the same limitation this document
+already names (no durable "every launch" story on macOS, a human can bypass
+it by launching the real icon). For the short term, that's accepted as an
+okay tradeoff, not an oversight. For the long term, the plan is to
+**socialize** a `network_egress`-hook-based solution — deliberately not
+"build" yet. That word matters: the long-term piece still needs buy-in from
+whoever else it touches before it's a committed engineering task, distinct
+from `HTTPS_PROXY`, which is already approved to actually test.
 
 **Decision: approach 2 (`HTTPS_PROXY`) now, approach 3 (`network_egress`
 redirect) later. Approach 1 (BYOK) is dropped — not just de-prioritized, not

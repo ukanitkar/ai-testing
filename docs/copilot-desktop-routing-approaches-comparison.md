@@ -96,22 +96,45 @@ terminates TLS with a locally-trusted CA and relays, seeing the real request
   own auto-updates. The only thing that works today is a wrapper script the
   user has to launch *instead of* the real icon — a real behavior change,
   not true enforcement.
-- **The actual TLS-terminating relay isn't built yet** — only the proxy
-  *attempt* was validated (via a throwaway `nc` listener). Needs a new
-  listener kind, local CA trust, and handling for the first-party wire shape
-  — confirmed to be `/responses` (OpenAI Responses API), **not**
-  `/chat/completions` like the BYOK relay.
 - Requires the app to trust a locally-generated CA for TLS termination — a
   real, ongoing security-surface decision (whoever holds that CA's key can
   decrypt anything the app trusts it for).
-- Not yet proven through real Optimus for a non-`gpt-4o` model — only a
-  direct curl to `api.githubcopilot.com` has been confirmed for
-  `claude-sonnet-5`; the Optimus-mediated round trip for an enterprise model
-  specifically is still untested.
 - Still depends on the app's own cooperation (honoring the env var) — lower
   risk than approach 1's reverse-engineered schema (respecting proxy env
   vars is a basic, widely-relied-on client behavior), but not contractually
-  guaranteed by GitHub either.
+  guaranteed by GitHub either. This is the one limitation `network_egress`'s
+  redirect work (later phase) actually removes — see the Recommendation.
+
+**Update, 2026-10-05 — both remaining open items above are now closed,
+confirmed live, not just designed:**
+- **The TLS-terminating relay is built**, and needed no new listener kind at
+  all — it reuses the existing, already-shipping `listener::kinds::https`
+  forward-proxy machinery (the same one Claude Code's `HTTPS_PROXY` leg
+  uses: generic CONNECT handling, per-host TLS termination via an
+  on-the-fly-minted leaf, no allowlist, no auth injection). The new code is
+  a small standalone harness, `ai-gateway/copilot-desktop-forward-proxy`,
+  that binds it and signs with a borrowed already-enrolled agent's real
+  triple JWT — modeled directly on `copilot-desktop-simple`.
+- **A real inference call through real Optimus is confirmed**, live: with
+  the app launched under this harness's `HTTPS_PROXY`, a prompt sent to a
+  real enterprise model produced `POST /v1/messages ->
+  api.business.githubcopilot.com http/1.1 200` — real triple-JWT signing,
+  real backend, real response. (The wire shape turned out to be `/v1/messages`
+  — Anthropic's Messages API format — for every model family, not
+  `/chat/completions`/`/responses` as earlier assumed; GitHub's backend
+  normalizes to one shape regardless of the underlying provider.) Every
+  other host the app needs — `api.github.com`, `exp.business.githubcopilot.com`,
+  `telemetry.business.githubcopilot.com`, even unrelated ones like
+  `ai.azure.com`/`api.catalog.azureml.ms` — relayed through the same listener
+  with no special-casing required, confirming the "no allowlist" design
+  claim empirically rather than just architecturally.
+- One operational gotcha hit during this test, worth recording: an existing
+  chat session can carry its own stale `provider_id`/`model` reference from
+  earlier BYOK testing (the `sessions` table's own stickiness, not a new
+  bug) — pointing it at a port nothing listens on anymore produces a
+  `Connection reset by peer` error that looks like a new failure but isn't.
+  Fixed by either reselecting a real model in that session or starting a
+  fresh one (new sessions pick up the global default with no manual step).
 
 ## Approach 3: `network_egress` (per-process allow/block)
 
@@ -242,15 +265,23 @@ authoring as a **hardening layer now**, even before the redirect work lands
 just bypasses it by launching normally" gap on one platform today, which the
 redirect work will later close everywhere.
 
-**Concretely, next steps in order:** (1) build the new listener kind
-described above — TLS termination for `api.business.githubcopilot.com`,
-Host-based routing, pass-through auth, triple-JWT signing to Optimus; (2)
-prove one real enterprise model (`claude-sonnet-5` or similar) end-to-end
-through *real* Optimus, not just direct curl — still unproven; (3) author
-the Windows `network_egress` block/allow rule as the near-term hardening
-layer, since it costs nothing new; (4) pursue the `network_egress` redirect
-work (both design docs) as the durable "every launch" fix, tracked as its
-own, separate, longer-lead-time effort — not a blocker on (1)–(3).
+**Concretely, next steps, updated 2026-10-05 — (1) and (2) are done:**
+(1) ~~build the new listener kind~~ — done, and turned out to need no new
+listener kind at all: `listener::kinds::https` already did everything
+required, reused as-is by the new `copilot-desktop-forward-proxy` harness;
+(2) ~~prove one real enterprise model end-to-end through real Optimus~~ —
+done, confirmed live (`POST /v1/messages -> api.business.githubcopilot.com
+http/1.1 200`), not just direct curl. Remaining: (3) author the Windows
+`network_egress` block/allow rule as the near-term hardening layer, since it
+costs nothing new; (4) decide whether `copilot-desktop-forward-proxy`'s
+approach gets wired into `agent-manager` as a real, shippable `LlmRouting`
+variant (a bigger change — no existing variant quite fits, since neither
+`BaseUrl`, `ForwardProxy`'s file-writing half, nor `CopilotDesktopAuthRelay`
+apply) or stays a dev harness until the `network_egress` redirect work
+removes the "manually-launched" dependency; (5) pursue the `network_egress`
+redirect work itself (both design docs) as the durable "every launch" fix —
+per the team's 2026-10-04 decision, this is to be *socialized*, not yet a
+committed build.
 
 ## Appendix: detailed Q&A (2026-10-02)
 

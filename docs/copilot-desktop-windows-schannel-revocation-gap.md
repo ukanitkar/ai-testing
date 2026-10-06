@@ -1,11 +1,11 @@
-# Copilot desktop on Windows: a real client connects to our listener and goes silent — likely a SChannel revocation-check gap in the minted leaf cert
+# Copilot desktop on Windows: a SChannel revocation-check gap in the minted leaf cert — found, fixed, confirmed live
 
-2026-10-05. Step (2b) of the validation sequence (the disposable VM) for the
-real, continuous-service `ForwardProxy` wiring (`ai-protect` commit
+2026-10-05/06. Step (2b) of the validation sequence (the disposable VM) for
+the real, continuous-service `ForwardProxy` wiring (`ai-protect` commit
 `5cd40c8d`, discussed in `copilot-desktop-routing-approaches-comparison.md`).
-The wiring itself is confirmed correct; what's documented here is a real,
-Windows-specific gap found while trying to prove an actual inference call
-end-to-end on the VM.
+**Status: fixed and confirmed end-to-end — see "Resolved, 2026-10-06" at the
+bottom.** The rest of this file is the original diagnostic trail, kept as
+written because the reasoning in it is what got to the fix.
 
 ## What's confirmed working
 
@@ -119,3 +119,60 @@ transport.
 capture with `/f:xml` and filter on `github.exe`'s PID, or use Process
 Monitor's own certificate/TLS event capture, to get an unambiguous
 per-process confirmation before investing in the cert-minting fix.
+
+## Resolved, 2026-10-06
+
+Implemented the fix this file recommended: `ai-protect` commit `055e7aa0`
+adds `listener::certs::spawn_crl_server` — a tiny, loopback-only, plain-HTTP
+server handing out one always-valid (nothing ever revoked) CRL, signed by
+the same local CA, via `rcgen`'s `CertificateRevocationListParams`
+(first-class support, no custom-extension hackery needed). Every leaf minted
+once `LocalCa::with_crl_port` is set gets a real `crl_distribution_points`
+entry pointing at it. Wired into the one place that constructs every
+`LocalCa` for every real listener (`https::local_ca_credentials`), so the
+standalone `copilot-desktop-forward-proxy` harness picks it up for free too.
+`cargo test -p ai-gateway-listener`: 174 passed, including two new tests
+asserting the CDP is present/absent correctly and that `crl_der()` parses as
+a real CA-issued empty CRL, plus a `#[tokio::test]` exercising the hand-rolled
+HTTP response framing over a real socket.
+
+**Confirmed live on the VM, in order:**
+
+1. **The exact `curl.exe` repro that found this bug, re-run after deploying
+   the fix (v0.3.6), with no `--ssl-no-revoke`** — succeeded cleanly, full
+   revocation checking in effect:
+   ```
+   curl.exe -x http://127.0.0.1:8795 -v https://api.github.com/
+   → HTTP/1.1 200, real api.github.com JSON body, no schannel error at all
+   ```
+   Same command, same listener, same port shape that previously hard-failed
+   with `CRYPT_E_NO_REVOCATION_CHECK` — now clean.
+2. **The real GitHub Copilot app, relaunched through the proxy, got a real
+   answer in its own UI.** This *looked* like a second bug at first — the
+   gateway log showed zero matches for `'copilot-desktop'` immediately after,
+   which read as "bypassed the proxy entirely." It wasn't: the per-request
+   log line (`[listener] METHOD path -> host status`) never contains the
+   literal agent-id string in the first place — that's only on the outer
+   span wrapper some *other* lines carry, not these. Grepping for the wrong
+   string, not a routing bypass. Once that was spotted, the unfiltered log
+   showed exactly what should be there:
+   ```
+   POST /agents/sessions/<id>/events -> api.individual.githubcopilot.com h2 201 in 675ms
+   POST /agents/sessions/<id>/events -> api.individual.githubcopilot.com h2 201 in 285ms
+   POST /twirp/clientappsfe.observability.v1.TelemetryAPI/SubmitMetrics -> cafe.github.com http/1.1 200 in 86ms
+   ```
+   Real `201 Created` responses, real headers (`x-oauth-scopes`,
+   `x-github-request-id`, the works), real request/response bodies logged.
+
+**Net result:** the Windows leg of `copilot-desktop`'s `ForwardProxy` wiring
+is now fully confirmed end-to-end — real app, real relay, real backend,
+real response, through the real continuous service, with proper TLS
+revocation checking intact rather than silently weakened. Nothing here
+needed a registry tweak, a reboot, or giving up TLS interception; the fix is
+real product code, not a VM workaround.
+
+**Lesson worth keeping for next time:** when grepping this log for an
+agent's own traffic, filter on the *destination host* or the *path* (e.g.
+`githubcopilot.com`, `/agents/sessions`), not the agent id — the per-request
+`[listener]` lines never carry it. Losing time to this exact trap once is
+enough.

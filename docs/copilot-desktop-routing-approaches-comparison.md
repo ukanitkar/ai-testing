@@ -195,7 +195,9 @@ test, repeated for real on a Windows laptop (ukanitkar's corporate dev
 machine), not just macOS.** Four things worth recording, in the order they
 were hit:
 
-1. **The harness's own Windows gap (flagged in `1fa4d1ac`'s own comment —
+1. **The harness's own Windows gap (flagged in `3d45d58b`'s own comment on
+   `main-08272026-github-copilot-app-mr` — `1fa4d1ac` on the sibling,
+   pre-BYOK-removal branch —
    "revisit on the actual Windows laptop") is now closed.** The local CA
    private key's owner-only permission restriction was Unix-only
    (`chmod 0600`); swapped for the already-existing, already-tested
@@ -205,7 +207,9 @@ were hit:
    Windows-specific steps (`certutil -user -addstore Root` for CA trust, a
    PowerShell env-scoped launch) selected via `cfg!(windows)` — previously
    Mac-only text. `cargo test -p zax-sdk`'s Windows ACL round-trip test passes
-   for real on this machine (`ai-protect` commit `c53a6882`).
+   for real on this machine (`ai-protect` commit `00d26568` on
+   `main-08272026-github-copilot-app-mr`; `c53a6882` on the sibling,
+   pre-BYOK-removal branch).
 2. **No credential store existed on this laptop at all** — unlike the Mac,
    nothing had ever enrolled a real agent here, so the harness's `--borrow-
    agent` had nothing to borrow. `activate-agent` was used to mint one, which
@@ -219,7 +223,8 @@ were hit:
    `agent_id` (`71066f59-8225-4f9a-acf1-82e575961c20`), same `pending_approval`
    /180s-timeout-then-re-register-after-approval pattern already seen on the
    VM in `TOKEN_EXCHANGE_AUTH_BUG.md`. This also re-confirmed that fix
-   (`41aa2bc8`) end-to-end on a second, independent, fully-fresh registration:
+   (`931aace8` on `main-08272026-github-copilot-app-mr`) end-to-end on a
+   second, independent, fully-fresh registration:
    register (200) → approved (poll #1) → activate (200) → token-exchange
    (200, 2627 bytes).
 3. **First proxied run: every single request came back `403`.** Initially

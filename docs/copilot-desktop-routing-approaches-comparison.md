@@ -393,7 +393,8 @@ authoring as a **hardening layer now**, even before the redirect work lands
 just bypasses it by launching normally" gap on one platform today, which the
 redirect work will later close everywhere.
 
-**Concretely, next steps, updated 2026-10-05 — (1) and (2) are done:**
+**Concretely, next steps, updated 2026-10-06 — (1), (2), (2a), (2b), and (4)
+are done:**
 (1) ~~build the new listener kind~~ — done, and turned out to need no new
 listener kind at all: `listener::kinds::https` already did everything
 required, reused as-is by the new `copilot-desktop-forward-proxy` harness;
@@ -402,21 +403,29 @@ done, confirmed live, twice, (`POST /v1/messages ->
 api.business.githubcopilot.com http/1.1 200`), not just direct curl — the
 second run also cleared a real Zscaler-tunnel interference issue (see the
 gotchas above), so this is the more thoroughly-validated of the two.
-**The validation sequence from here, stated explicitly: (2a) ~~repeat this
-exact same test on a Windows laptop~~ — done, confirmed live, 2026-10-05 (see
-the update above); (2b) then finally on the disposable/research VM** — the
-plan's own original final-verification target, never a personal machine.
-Separately: (3) author the Windows
-`network_egress` block/allow rule as the near-term hardening layer, since it
-costs nothing new; (4) decide whether `copilot-desktop-forward-proxy`'s
-approach gets wired into `agent-manager` as a real, shippable `LlmRouting`
-variant (a bigger change — no existing variant quite fits, since neither
-`BaseUrl`, `ForwardProxy`'s file-writing half, nor `CopilotDesktopAuthRelay`
-apply) or stays a dev harness until the `network_egress` redirect work
-removes the "manually-launched" dependency; (5) pursue the `network_egress`
-redirect work itself (both design docs) as the durable "every launch" fix —
-per the team's 2026-10-04 decision, this is to be *socialized*, not yet a
-committed build.
+~~(2a) repeat this exact same test on a Windows laptop~~ — done (the
+Windows-specific work this prompted: the CRL Distribution Point fix for
+Windows revocation hard-fails, the owner-only key ACL, the Windows usage
+steps, `CommandHistory-Windows.md`). ~~(2b) then finally on the
+disposable/research VM~~ — done: hit and fixed a real SChannel
+revocation-check gap along the way (the leaf cert the harness minted had no
+CRL Distribution Point, which Windows hard-fails on — `listener::
+certs::spawn_crl_server` fixes it fleet-wide, not just for this agent; full
+diagnostic-to-fix trail in `copilot-desktop-windows-schannel-revocation-
+gap.md`), then confirmed clean end-to-end through the real continuous
+service: real app, real relay, real backend, real response, proper
+revocation checking intact. ~~(4) decide whether `copilot-desktop-forward-
+proxy`'s approach gets wired into `agent-manager` as a real, shippable
+`LlmRouting` variant~~ — done: contrary to this document's own earlier
+assessment that "no existing variant quite fits," `LlmRouting::ForwardProxy`
+with an empty `proxy_key` fit as-is — the listener-side half is all this
+agent needs, and `ForwardProxy`'s file-writing half simply goes unused
+rather than blocking reuse of the variant.
+Remaining: (3) author the Windows `network_egress` block/allow rule as the
+near-term hardening layer, since it costs nothing new; (5) pursue the
+`network_egress` redirect work itself (both design docs) as the durable
+"every launch" fix — per the team's 2026-10-04 decision, this is to be
+*socialized*, not yet a committed build.
 
 ## Appendix: detailed Q&A (2026-10-02)
 
@@ -663,7 +672,10 @@ For the one architecture that's fully built (BYOK), in order:
   cache and self-minting), reusing `gateway.rs`'s existing TLS
   client/connection pooling to Optimus.
 - `sdk` (`zax_sdk`): the enroll pipeline, including this session's real fix
-  to `token_exchange()`'s missing `Authorization` header (`41aa2bc8`).
+  to `token_exchange()`'s missing `Authorization` header (`931aace8` on
+  `main-08272026-github-copilot-app-mr`, the branch this document now tracks
+  — `41aa2bc8` was the same fix's hash on the sibling, pre-BYOK-removal
+  `main-08272026-github-copilot-app` branch and is not reachable from here).
 - `creds-manager`: persists the resulting triple-JWT/HMAC credentials.
 - Dev-harness binaries: `activate-agent`, `copilot-desktop-simple`,
   `simulate-ai-gateway`, and the `simulator` crate (binary `zax-sim`,

@@ -2,7 +2,10 @@
 
 2026-10-05/06. Step (2b) of the validation sequence (the disposable VM) for
 the real, continuous-service `ForwardProxy` wiring (`ai-protect` commit
-`5cd40c8d`, discussed in `copilot-desktop-routing-approaches-comparison.md`).
+`671c70d5` on `main-08272026-github-copilot-app-mr` — `5cd40c8d` was the same
+change's hash on the sibling, pre-BYOK-removal `main-08272026-github-
+copilot-app` branch and is not reachable from `-mr`; discussed in
+`copilot-desktop-routing-approaches-comparison.md`).
 **Status: fixed and confirmed end-to-end — see "Resolved, 2026-10-06" at the
 bottom.** The rest of this file is the original diagnostic trail, kept as
 written because the reasoning in it is what got to the fix.
@@ -122,8 +125,10 @@ per-process confirmation before investing in the cert-minting fix.
 
 ## Resolved, 2026-10-06
 
-Implemented the fix this file recommended: `ai-protect` commit `055e7aa0`
-adds `listener::certs::spawn_crl_server` — a tiny, loopback-only, plain-HTTP
+Implemented the fix this file recommended: `ai-protect` commit `ac6e4663` on
+`main-08272026-github-copilot-app-mr` (`055e7aa0` on the sibling, pre-BYOK-
+removal `main-08272026-github-copilot-app` branch) adds
+`listener::certs::spawn_crl_server` — a tiny, loopback-only, plain-HTTP
 server handing out one always-valid (nothing ever revoked) CRL, signed by
 the same local CA, via `rcgen`'s `CertificateRevocationListParams`
 (first-class support, no custom-extension hackery needed). Every leaf minted

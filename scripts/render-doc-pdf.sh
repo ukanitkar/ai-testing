@@ -5,11 +5,19 @@
 # with no source in the repo. They then went stale silently — a reader had no
 # way to tell a PDF apart from the Markdown it was rendered from, and no way to
 # refresh it. Anything under docs/ that is a render of Markdown should be
-# produced by this script so "is the PDF current?" is answerable by re-running
-# it and diffing, instead of by reading both and guessing.
+# produced by this script so "is the PDF current?" has an answer.
 #
 #   scripts/render-doc-pdf.sh <source.md> <output.pdf>
 #   scripts/render-doc-pdf.sh --all          # every mapping in the table below
+#   scripts/render-doc-pdf.sh --check        # are the committed PDFs current?
+#
+# ⚠️ The output is NOT byte-reproducible: LibreOffice stamps a /CreationDate
+# into every PDF, so re-rendering unchanged Markdown still produces different
+# bytes. `git diff` on the PDF therefore tells you nothing — it is always
+# "modified" after a re-run. That is what `--check` is for: it compares the
+# EXTRACTED TEXT (pdftotext) of a fresh render against the committed PDF, which
+# is the comparison that actually answers the question. Use `--check` in review
+# or CI; never infer staleness from the binary diff.
 #
 # Toolchain: pandoc (md -> docx) then LibreOffice (docx -> pdf). Not pandoc's
 # direct PDF output, which needs a LaTeX engine this repo does not assume.
@@ -36,6 +44,32 @@ render_all() {
   [[ -n "$AI_PROTECT" ]] || die "set AI_PROTECT=<path to ai-protect checkout> (sibling dir not found)"
   render "$AI_PROTECT/driver/zsai-netflt/CONNECT-REDIRECT-CRASH-SAFETY.md" \
          "$ROOT/docs/crash_safety.pdf"
+}
+
+# Is each committed PDF still a faithful render of its source? Compares
+# extracted text, not bytes — see the /CreationDate note at the top.
+check_all() {
+  [[ -n "$AI_PROTECT" ]] || die "set AI_PROTECT=<path to ai-protect checkout> (sibling dir not found)"
+  need pdftotext
+  check_one "$AI_PROTECT/driver/zsai-netflt/CONNECT-REDIRECT-CRASH-SAFETY.md" \
+            "$ROOT/docs/crash_safety.pdf"
+}
+
+check_one() {
+  local src="$1" committed="$2"
+  [[ -f "$committed" ]] || die "no committed PDF at $committed — run --all first"
+  render "$src" "$SCRATCH/fresh.pdf"
+  pdftotext "$SCRATCH/fresh.pdf" "$SCRATCH/fresh.txt"
+  pdftotext "$committed" "$SCRATCH/committed.txt"
+  if diff -q "$SCRATCH/committed.txt" "$SCRATCH/fresh.txt" >/dev/null; then
+    log "CURRENT: $(basename "$committed") matches $(basename "$src")"
+  else
+    printf '\033[1;31m[render-doc-pdf] STALE:\033[0m %s no longer matches %s\n' \
+      "$(basename "$committed")" "$(basename "$src")" >&2
+    diff -u "$SCRATCH/committed.txt" "$SCRATCH/fresh.txt" | head -40 >&2
+    printf '\033[1;31m[render-doc-pdf]\033[0m re-run with --all to refresh it\n' >&2
+    return 1
+  fi
 }
 
 SCRATCH="$(mktemp -d)"
@@ -75,6 +109,7 @@ render() {
 main() {
   case "${1:-}" in
     --all) render_all ;;
+    --check) check_all ;;
     "" | -h | --help)
       sed -n '1,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0

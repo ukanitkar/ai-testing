@@ -7,14 +7,14 @@ through Optimus for policy enforcement — **enforced, not dependent on the
 user leaving an editable setting in place**, so it holds for every account
 tier in `vscode-copilot-enterprise-gate-account-test.md`'s matrix. (A
 non-enforced app-level lever — VS Code's `http.proxy` — was confirmed working
-for rows 1–3/5–7 this session, §7; it is a real interim option, not a
+for rows 1–3/5–7 this session, §8; it is a real interim option, not a
 substitute for this hook.)
 
 This is an endpoint DLP / policy-enforcement capability for Zscaler AI Protect,
 operating on the organization's own managed devices. It supersedes the VS Code
 parts of `option-4-process-aware-redirect-design.md` and the two
 `copilot-desktop-*-design.md` docs, and corrects one shared API assumption
-(§3). **[verified]** = read from installed binaries, this repo, or
+(§4). **[verified]** = read from installed binaries, this repo, or
 Apple/Microsoft docs on 2026-10-13; **[inferred]** = not yet confirmed.
 
 ## 0. Why a redirect hook
@@ -25,13 +25,49 @@ Apple/Microsoft docs on 2026-10-13; **[inferred]** = not yet confirmed.
 - Existing `network_egress` is **allow/drop only** on both platforms
   (`docs/network-egress.md`); redirect is a new action, not a new rule.
 - A non-enforced lever, VS Code's `http.proxy`, is **confirmed working**
-  (§7) — real CAPI/chat traffic routes through it. User-editable, so not an
+  (§8) — real CAPI/chat traffic routes through it. User-editable, so not an
   enforcement story on its own — it shapes what the hook must *add*:
   enforcement, not reachability.
 
-## 1. What VS Code Copilot's traffic looks like
+## 1. The two halves required for success
 
-### 1.1 Processes [verified on macOS; Windows analog inferred]
+This feature only succeeds if **both** of the following hold. Either one
+alone is not a partial win — a redirect without trust just breaks the agent,
+which from outside looks identical to a kernel-side bug.
+
+- **Half 1 — capture the traffic.** Get the connection to land on
+  `ai-gateway`'s listener instead of its real destination. This is the
+  kernel-level piece: the WFP connect-redirect on Windows (§4), the
+  `NETransparentProxyProvider` hook on macOS (§5). **Necessary, not
+  sufficient.**
+- **Half 2 — terminate at the listener using a root certificate.** Once the
+  connection lands there, the client has to actually complete the TLS
+  handshake against the listener's certificate, which chains to a CA the
+  client trusts. If it doesn't, the handshake is rejected and the agent sees
+  a connection failure, not a policed request.
+
+Half 1 is what this document's Windows/macOS sections build. Half 2 is a
+**separate, already-surfaced problem for this specific agent**: measured live
+2026-10-15, `vscode-copilot`'s Electron `net` stack — which carries its real
+CAPI/chat traffic — only honors the system/login keychain, not this product's
+existing per-agent `NODE_EXTRA_CA_CERTS` trust channel (which every other
+brokered agent uses today). So Half 2 for `vscode-copilot` means installing
+the gateway's root CA **device-wide**, not the narrow per-agent trust this
+product otherwise relies on — a deliberate, measurement-justified exception,
+not a precedent for other agents. See:
+
+- `ai-protect/docs/ca-trust-deployment-model.md` — the decision record: why
+  device-wide trust is a per-agent exception rather than a generic fix, and
+  what any future agent needs before being added to that list.
+- `agent-tls-and-ca-trust-matrix.md` — the measurement itself (keychain vs.
+  `NODE_EXTRA_CA_CERTS`, split by TLS stack via GREASE fingerprinting).
+- `driver/zsai-netflt/CONNECT-REDIRECT-CRASH-SAFETY.md` — carries this as a
+  precondition on the kernel validation checklist, since no amount of
+  redirect-path correctness (Half 1) substitutes for it.
+
+## 2. What VS Code Copilot's traffic looks like
+
+### 2.1 Processes [verified on macOS; Windows analog inferred]
 
 Two independent HTTP stacks, two processes:
 - **`copilot-chat` extension (built-in, v0.59.0)** runs in the extension-host
@@ -47,7 +83,7 @@ match necessarily covers all helpers — **destination rules do the narrowing**.
 **[inferred — confirm the Windows image path + `--type` helpers on the test box
 with Process Explorer before writing filters.]**
 
-### 1.2 Destination hosts [verified — read from the two bundles]
+### 2.2 Destination hosts [verified — read from the two bundles]
 
 CAPI / model + account traffic worth redirecting:
 - `api.githubcopilot.com` (default CAPI base), `api-model-lab.githubcopilot.com`
@@ -62,7 +98,7 @@ the agent host trust whatever `endpoints.api` / `endpoints.proxy` the discovery
 response returns, so once the discovery leg is routed, later calls follow —
 same property `vscode_copilot.rs` already relies on.
 
-## 2. Architecture (shared listener, per-platform hook)
+## 3. Architecture (shared listener, per-platform hook)
 
 ```
 VS Code Copilot process ── connect() to api.githubcopilot.com:443
@@ -78,11 +114,11 @@ The listener half is **reused, not new**: `ai-gateway/listener/src/kinds/https.r
 already sniffs ClientHello vs CONNECT, captures SNI, and resolves the
 destination from SNI/Host when no CONNECT authority is present. The hook's only
 job is landing the flow on it; recovering "what host did the client originally
-want" is SNI on macOS and a WFP redirect record on Windows (§3).
+want" is SNI on macOS and a WFP redirect record on Windows (§4).
 
-## 3. Windows — `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` (lead platform)
+## 4. Windows — `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` (lead platform)
 
-### 3.1 Why this reuses the most [verified]
+### 4.1 Why this reuses the most [verified]
 
 The parked SNI driver (`driver/zsai-netflt/`, built with WDK 10.0.26100,
 validated on Server 2025 — `docs/network-egress-sni-driver-parked.md`) already:
@@ -98,7 +134,7 @@ And the user-mode enforcer (`enforcer.rs`) already builds `ALE_APP_ID`
 filters from live DNS. So "match Code.exe → these hosts" is **already
 expressible**; only the redirect *action* is new.
 
-### 3.2 The new piece [verified against Microsoft docs]
+### 4.2 The new piece [verified against Microsoft docs]
 
 A callout registered on `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` (+ `_V6`), in its
 classify:
@@ -117,7 +153,7 @@ classify:
 This is a **new callout on a new layer in the existing driver**, not a new
 driver. It reuses the device, the sublayer, and the transaction pattern.
 
-### 3.3 Open items (Windows)
+### 4.3 Open items (Windows)
 
 - EV + attestation (or WHQL) signing — **no MDM bypass**; the driver's `.sys` is
   still unsigned by CI (`network-egress-sni-driver-parked.md`). Decide signing
@@ -130,9 +166,9 @@ driver. It reuses the device, the sublayer, and the transaction pattern.
   listener's PID; the same first-connection attribution race `network_egress`
   already documents applies.
 
-## 4. macOS — `NETransparentProxyProvider` (second)
+## 5. macOS — `NETransparentProxyProvider` (second)
 
-### 4.1 Entitlement is already granted [verified — corrects prior docs]
+### 5.1 Entitlement is already granted [verified — corrects prior docs]
 
 `packaging/macos/profiles/network.provisionprofile` grants
 `com.apple.developer.networking.networkextension = [packet-tunnel-provider,
@@ -142,20 +178,20 @@ app-proxy-provider, content-filter-provider, dns-proxy, …]`. The
 "is a new Apple entitlement request needed" open item from the prior docs is
 **resolved: no**.
 
-### 4.2 Selection is `includedNetworkRules`, not `NEAppRule` [verified — corrects prior docs]
+### 5.2 Selection is `includedNetworkRules`, not `NEAppRule` [verified — corrects prior docs]
 
 `NETransparentProxyProvider` (macOS 11+) is a subclass of `NEAppProxyProvider`.
 Flows reach it via `NETransparentProxyNetworkSettings.includedNetworkRules`
 (`[NENetworkRule]`); `excludedNetworkRules` take priority. `NENetworkRule` has
 `init(destinationHost:protocol:)` — "a host within a specific DNS domain" — so
-we include exactly the §1.2 hosts. **Per-app narrowing happens inside
+we include exactly the §2.2 hosts. **Per-app narrowing happens inside
 `handleNewFlow`** via `flow.metaData.sourceAppSigningIdentifier` (match
 `com.microsoft.VSCode.helper`); returning **`false` passes the flow through
 untouched** (this is the key `NETransparentProxyProvider` difference from
 `NEAppProxyProvider`, where `false` drops it). The prior docs' "`NEAppRule`
 by bundle id" framing is wrong for this provider type.
 
-### 4.3 Can ride in one sysext with the content filter [verified — DTS-confirmed]
+### 5.3 Can ride in one sysext with the content filter [verified — DTS-confirmed]
 
 `Info.plist` `NEProviderClasses` may map both
 `com.apple.networkextension.filter-data` and `.app-proxy` to classes in the
@@ -165,7 +201,7 @@ sysext. Trade-off: a crash in one provider takes out the other; keep their
 rule sets disjoint (also dodges the historical 11.1 wss-upgrade bug, fixed in
 11.2; product min is macOS 11.0).
 
-### 4.4 Open items (macOS)
+### 5.4 Open items (macOS)
 
 - No NE provider source exists yet — `net_egress/macos.rs` is daemon-side
   plumbing for a sysext never written; `net-agent` (Swift) has only
@@ -177,14 +213,14 @@ rule sets disjoint (also dodges the historical 11.1 wss-upgrade bug, fixed in
 - Coexistence: real devices run ZCC's `TRPTunnel` packet-tunnel NE and
   CrowdStrike ES — validate side-by-side.
 
-## 5. Listener changes
+## 6. Listener changes
 
 Likely minimal: `kinds::https` already resolves destination from SNI. Needed:
 (a) a bind/accept path for transparently-redirected flows (no CONNECT), (b) on
 Windows, read/stamp the WFP redirect records so the relationship + loop guard
 work, (c) scope the gateway's own outbound socket out of the redirect (by PID).
 
-## 6. Build order
+## 7. Build order
 
 1. **Windows**: confirm WDK on the test box; decide signing; add the
    CONNECT_REDIRECT callout (redirect only) reusing the existing device +
@@ -194,7 +230,7 @@ work, (c) scope the gateway's own outbound socket out of the redirect (by PID).
    verbs on a SIP-disabled box; reuse the same listener.
 3. Policy/settings surface for a `redirect` action, parallel to `block`/`allow`.
 
-## 7. Parallel test — non-enforced proxy lever — **run, confirmed working, 2026-10-13**
+## 8. Parallel test — non-enforced proxy lever — **run, confirmed working, 2026-10-13**
 
 Separate from the hook, and run in parallel rather than waiting on kernel work.
 **[verified from the bundles, then confirmed live]**: the `copilot-chat`
@@ -228,7 +264,7 @@ confirmed CAPI traffic, not just auth.
 **What this changes:** rows 1–3/5–7 of the licensing matrix get a real,
 working, **non-enforced** lever today, on an account that gets `enterprise: false`
 on every other mechanism tested. **What it doesn't change:** this is routing
-only (no TLS termination was attempted — the keychain-trust question in §4
+only (no TLS termination was attempted — the keychain-trust question in §5
 caveat remains untested), and it's user-editable unless pushed via an
 MDM-managed VS Code settings profile. It is a real interim option alongside
 this doc's hook design, not a substitute for the enforced version.

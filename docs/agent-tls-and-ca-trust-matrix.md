@@ -90,6 +90,13 @@ Agents in adapter-registry order (`ai-gateway/agent-manager/src/agents/mod.rs`).
       them) do.** This is the same shape as the `copilot` CLI row's
       Node-vs-native-Rust split, just with Electron in place of the native
       Rust transport.
+    - **Product-level consequence, decided 2026-10-15/16**: this is the
+      first agent that requires device-wide (system/keychain) trust rather
+      than this product's usual narrow per-agent `NODE_EXTRA_CA_CERTS`
+      model. That tension, and the decision that device-wide trust stays a
+      measurement-justified per-agent exception rather than becoming the
+      generic model for every agent, is recorded in `ai-protect`'s
+      `docs/ca-trust-deployment-model.md` — not duplicated here.
   - **Note on the SNI column**: marked ✅ only for *explicit proxy mode*
     (`http.proxy`, this test's setup) — `mitmdump` in that mode learns the
     destination from the client's `CONNECT` line, not from sniffing SNI, so

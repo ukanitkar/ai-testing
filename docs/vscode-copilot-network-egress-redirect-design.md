@@ -116,6 +116,38 @@ destination from SNI/Host when no CONNECT authority is present. The hook's only
 job is landing the flow on it; recovering "what host did the client originally
 want" is SNI on macOS and a WFP redirect record on Windows (§4).
 
+### 3.1 Recovering the original destination — two different questions, two different sources
+
+The redirect hook only solves "land the connection on the listener." After
+that, two separate questions need answering, one kernel-verified and one
+client-asserted — neither alone is enough:
+
+- **What was the original destination (IP:port)?** The kernel rewrite at
+  `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` doesn't erase this — WFP keeps a
+  redirect record keyed to the new local 4-tuple, and the listener recovers it
+  with `SIO_QUERY_WFP_CONNECTION_REDIRECT_RECORDS` on the accepted socket
+  (§4.2, step 4). This is kernel-verified ground truth; the client cannot
+  influence it.
+- **What hostname did the client mean?** A bare IP:port doesn't give you
+  `api.githubcopilot.com` as a string — one IP can front many hostnames behind
+  a CDN, so IP alone doesn't tell the listener which cert CN to mint for the
+  Half-2 TLS termination (§1). That string comes from the TLS ClientHello's
+  SNI extension, sent in cleartext before anything is encrypted — exactly what
+  `kinds::https.rs` already sniffs, per the diagram above. SNI is
+  **client-asserted, not kernel-verified**: a client could in principle
+  misstate it, and it is unavailable outright when the client uses ECH
+  (Encrypted Client Hello) or connects to a bare IP literal.
+
+Both sources stay in use for different purposes: the redirect record for the
+real destination (policy/audit logs and enforces against what the OS actually
+tried to reach, not whatever the client claims in SNI), SNI for the cert CN
+and for `kinds::https.rs`'s existing host resolution. The degraded case — no
+SNI, same IP-ambiguity problem as above — has no WFP-only fix; it falls back
+to a pre-associated policy hostname keyed by IP, with the caveat that
+shared-IP CDN hosting can make that mapping ambiguous. Not an observed problem
+for VS Code Copilot's own hosts (§2.2) as measured this session, but a known
+limit worth stating rather than assuming away.
+
 ## 4. Windows — `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` (lead platform)
 
 ### 4.1 Why this reuses the most [verified]

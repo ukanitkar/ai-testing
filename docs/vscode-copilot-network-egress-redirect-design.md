@@ -93,10 +93,22 @@ CAPI / model + account traffic worth redirecting:
   `vscode_copilot.rs`)
 
 Leave alone (keep rules disjoint from these): `copilot-telemetry…`,
-`origin-tracker…`, `raw/uploads/docs/support.github.com`. Both the extension and
-the agent host trust whatever `endpoints.api` / `endpoints.proxy` the discovery
-response returns, so once the discovery leg is routed, later calls follow —
-same property `vscode_copilot.rs` already relies on.
+`origin-tracker…`, `raw/uploads/docs/support.github.com`, plus three hosts
+confirmed non-CAPI *and* confirmed to reject regardless of trust channel —
+`education.github.com`, `default.exp-tas.com`,
+`mobile.events.data.microsoft.com` (measured 2026-10-15,
+`agent-tls-and-ca-trust-matrix.md`: same Node TLS signature as the
+accepted CAPI calls, still rejected — some Node-based call sites pin their own
+CA bundle and ignore `NODE_EXTRA_CA_CERTS` regardless of stack). The
+destination allowlist above already excludes all of these by construction —
+listed here so the exclusion stays a documented decision tied to that
+measurement, not an accident of the allowlist being narrow, if the matching
+logic ever changes. Redirecting them would buy nothing anyway: they carry no
+policy-relevant traffic, and Half 2 (§1) would reject the handshake
+regardless of how well Half 1 works. Both the extension and the agent host
+trust whatever `endpoints.api` / `endpoints.proxy` the discovery response
+returns, so once the discovery leg is routed, later calls follow — same
+property `vscode_copilot.rs` already relies on.
 
 ## 3. Architecture (shared listener, per-platform hook)
 

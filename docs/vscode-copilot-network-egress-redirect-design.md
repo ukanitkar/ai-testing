@@ -160,6 +160,38 @@ shared-IP CDN hosting can make that mapping ambiguous. Not an observed problem
 for VS Code Copilot's own hosts (§2.2) as measured this session, but a known
 limit worth stating rather than assuming away.
 
+### 3.2 Two key pairs, not one — what the installed root actually verifies
+
+Half 2 (§1) — the agent trusting the listener's cert — rests on two
+**independent** key pairs that are easy to conflate because both are called
+"the cert" in casual conversation. Neither is ever shared with or derived
+from the other; the only link between them is a signature.
+
+| | Root CA pair | Leaf pair |
+|---|---|---|
+| Private key | the gateway's own CA key (`LocalCa`, `ai-gateway/listener/src/certs.rs`), delivered via `.broker.zip` — never this process's own leaf keys | a fresh key pair generated **in memory, per host**, at mint time (`certs.rs::mint_leaf_inner`) |
+| Public key | published to `ca-cert.pem` — what `NODE_EXTRA_CA_CERTS` (or the OS store, for the `vscode-copilot` device-wide exception, `ca-trust-deployment-model.md`) delivers to the agent **once, ahead of time** | embedded in the leaf cert sent live over the wire, fresh per connection to that host |
+| What it's used for | **signing** the leaf's data at mint time (an issuance act) | **authenticating the live handshake** — proving the listener holds the key matching this connection's cert (TLS `CertificateVerify` / key-exchange signing) |
+
+So the cert an agent is pre-configured to trust is **never** the cert the
+TLS handshake actually authenticates with — it's the cert used to verify
+*who signed* the one that does. Concretely, at handshake time:
+
+1. The listener sends the leaf (public key A) plus a signature over it.
+2. The agent already has the root's public key B on file (from the one-time
+   setup above, not from this connection).
+3. The agent checks: does the signature verify under B? If yes, it trusts
+   that a CA it already decided to trust vouched for this leaf — this step
+   never touches the leaf's own key pair.
+4. Separately, the handshake's own signing step proves the listener holds
+   the private key matching A — this step never touches the root's key
+   pair.
+
+This is also why the root doesn't need to be re-delivered or re-trusted per
+host: it's a one-time trust decision (§1, Half 2) that every subsequently
+minted leaf, for every host, rides on without any further agent-side
+configuration.
+
 ## 4. Windows — `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` (lead platform)
 
 ### 4.1 Why this reuses the most [verified]

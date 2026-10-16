@@ -44,7 +44,51 @@ Agents in adapter-registry order (`ai-gateway/agent-manager/src/agents/mod.rs`).
 | `copilot` (CLI) | ★ | Node + a **native Rust** HTTP transport | ❓ | ❓ | ❓ | ❓ (mixed) | Split stack: `NODE_EXTRA_CA_CERTS` for the Node side; the bundle states it "does not affect the OTLP exporter, which uses a native (Rust) HTTP transport" — so at least one path ignores it | read from `@github/copilot-*/app.js`, 2026-10-13 |
 | `copilot-desktop` | ★ | Electron shell + native **Rust** backend | ❓ | ❓ | ❓ | ❓ | Backend reads `HTTPS_PROXY`/`HTTP_PROXY` **env vars only** — confirmed by contrast (a system-wide GUI proxy caught the Electron-layer calls but never the backend's `/models`; a process-scoped env var did). That is a *proxy* finding, not a CA-trust one | `copilot-desktop-netransparentproxyprovider-design.md` |
 | `devin` | ★ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | |
-| `vscode-copilot` | ★ | **Electron `net`** (default) + `@github/copilot` agent-host child | ❓ | ❓ | ❓ | ❓ | **System/login keychain**, not `NODE_EXTRA_CA_CERTS`: the extension defaults to `advanced.debug.useElectronFetcher = true` and loads trust via `@vscode/proxy-agent`'s `loadSystemCertificates` (gated by `http.systemCertificatesNode`). Strongly evidenced by source read, but the **MITM itself was never tested** — only that `http.proxy` routes the traffic | extension bundle read + live proxy test, 2026-10-13/15 (`vscode-copilot-enterprise-gate-account-test.md` §5) |
+| `vscode-copilot` | ★ | **Electron `net`** (default) + `@github/copilot` agent-host child | ❓ | ✅ (explicit-proxy mode only — see note) | ❓ | ✅ **Mixed, confirmed 2026-10-15** — see below | **System/login keychain is the dominant path**; `NODE_EXTRA_CA_CERTS` is honored by *some* internal component but not all | terminating `mitmdump` proxy, CA installed via `security add-trusted-cert` into `login.keychain-db`; full chat/auth round-trip observed both ways |
+
+  **CA trust (confirmed) detail for `vscode-copilot`, measured 2026-10-15:**
+  - **System/login keychain: fully trusted.** CA added to `login.keychain-db`
+    only (`security add-trusted-cert -r trustRoot`, no System-wide change).
+    Result: **0 TLS rejections across 40 relayed requests** — every
+    `api.github.com`, `api.business.githubcopilot.com`,
+    `exp.business.githubcopilot.com` call succeeded, including
+    `/copilot_internal/user`, `/copilot_internal/v2/token`,
+    `/copilot_internal/managed_setting…`, `/models`. Clean, unambiguous.
+  - **`NODE_EXTRA_CA_CERTS`: partial, inconsistent — not a clean yes/no.**
+    Same CA, same hosts, `NODE_EXTRA_CA_CERTS` set at process launch (no
+    keychain trust in effect for this run). Per-host result was **mixed, in
+    the same burst**: `api.github.com` 16 relayed / 15 rejected,
+    `api.business.githubcopilot.com` 8 relayed / 3 rejected,
+    `mobile.events.data.microsoft.com` 6 relayed / 10 rejected. Successful
+    calls included real CAPI traffic (`/copilot_internal/user`, `/v2/token`,
+    `/models`, `/agents`, `/embeddings/models`), so the channel is real, not
+    a fluke — but different internal components of VS Code/Copilot evidently
+    make independent TLS-trust decisions for the identical hostname. This
+    matches the `copilot` CLI row's "mixed" finding, just split differently
+    (there it's Node-vs-native-Rust; here it looks like Electron's `net`
+    vs. a Node-based path inside the extension, not yet isolated further).
+  - **Note on the SNI column**: marked ✅ only for *explicit proxy mode*
+    (`http.proxy`, this test's setup) — `mitmdump` in that mode learns the
+    destination from the client's `CONNECT` line, not from sniffing SNI, so
+    this test does not confirm SNI presence for a *transparently* redirected
+    flow (the connect-redirect design's actual scenario). That remains ❓.
+  - **No-trust baseline, run before either of the above**: same proxy, same
+    CA, installed nowhere. Every host — including `api.github.com` and
+    `api.business.githubcopilot.com` — aborted the TLS handshake immediately,
+    zero exceptions. Confirms cert validation is not silently bypassed; the
+    two successes above are attributable to the trust step, not to a broken
+    check.
+  - **Compliance incident during the first (`NODE_EXTRA_CA_CERTS`) run**: VS
+    Code relaunched into whatever workspace was last open (`ai-protect`), and
+    Copilot's background discovery made an automatic repo-scoped API call
+    (`/repos/squarex-ai/ai-protect/...`) through the intercepting proxy —
+    repo identity only, no code/chat content, but exactly what the pilot's
+    non-IP-repo rule exists to prevent. Not anticipated before relaunching.
+    Fixed for the second run by launching into a genuine empty throwaway
+    folder (no git identity at all) — confirmed 0 repo-identity references in
+    that run's log. The flow-capture file from each run (which holds the
+    real session's live bearer tokens once TLS is terminated) was securely
+    deleted immediately after each run, not retained.
 | `grok` | | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | |
 | `windsurf` | | Electron app | ❓ | ❓ | ❓ | ❓ | Adapter declares `NODE_CA_ENV`; same Electron caveat as `cursor` | `agents/windsurf.rs` |
 | `antigravity` | | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | |

@@ -128,6 +128,31 @@ GitHub Copilot that must happen against a **non-IP / open-source repo**, per
 the pilot scope recorded in `vscode-copilot-enterprise-gate-account-test.md`
 §3.
 
+## Open: the Windows equivalent of the `vscode-copilot` keychain test
+
+Planned, not yet run. The 2026-10-15 measurement above confirms the
+**macOS login keychain** is trusted; it says nothing about Windows, which is
+a different trust mechanism entirely (the Windows Certificate Store —
+`CurrentUser\Root` vs `LocalMachine\Root`, with their own separate semantics)
+rather than a re-run of the same test on a different OS. Electron's `net` and
+`@vscode/proxy-agent`'s `loadSystemCertificates` both read *some* OS trust
+store on every platform they support, but which Windows store(s) they
+actually consult is unconfirmed — don't assume it mirrors macOS.
+
+Procedure, mirroring the macOS run exactly: terminating proxy (`mitmdump`
+works identically on Windows), CA imported with `certutil -addstore` or
+`Import-Certificate` into **`CurrentUser\Root` only** — the Windows
+equivalent of "login keychain, not System-wide" — then the same
+`http.proxy` + empty-workspace + no-`NODE_EXTRA_CA_CERTS` setup, watching for
+the same CAPI call set. Same compliance rule applies, and same cleanup
+discipline: delete the flow capture immediately, remove the CA from
+`CurrentUser\Root` with `certutil -delstore` when done, verify it's actually
+gone rather than assuming.
+
+A reasonable box for this: whichever Windows machine ends up hosting the WFP
+connect-redirect prototype work (`session-handoff-windows-wfp-redirect-prototype.md`)
+— same machine, unrelated task, no reason to set up a second one.
+
 ## What this file is not
 
 Not a statement that the unknowns are risky. For the redirect design the

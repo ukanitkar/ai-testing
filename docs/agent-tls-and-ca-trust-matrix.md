@@ -44,7 +44,7 @@ Agents in adapter-registry order (`ai-gateway/agent-manager/src/agents/mod.rs`).
 | `copilot` (CLI) | ★ | Node + a **native Rust** HTTP transport | ❓ | ❓ | ❓ | ❓ (mixed) | Split stack: `NODE_EXTRA_CA_CERTS` for the Node side; the bundle states it "does not affect the OTLP exporter, which uses a native (Rust) HTTP transport" — so at least one path ignores it | read from `@github/copilot-*/app.js`, 2026-10-13 |
 | `copilot-desktop` | ★ | Electron shell + native **Rust** backend | ❓ | ❓ | ❓ | ❓ | Backend reads `HTTPS_PROXY`/`HTTP_PROXY` **env vars only** — confirmed by contrast (a system-wide GUI proxy caught the Electron-layer calls but never the backend's `/models`; a process-scoped env var did). That is a *proxy* finding, not a CA-trust one | `copilot-desktop-netransparentproxyprovider-design.md` |
 | `devin` | ★ | ❓ | ❓ | ❓ | ❓ | ❓ | ❓ | |
-| `vscode-copilot` | ★ | **Electron `net`** (default) + `@github/copilot` agent-host child | ❓ | ✅ (explicit-proxy mode only — see note) | ❓ | ✅ **Mixed, confirmed 2026-10-15** — see below | **System/login keychain is the dominant path**; `NODE_EXTRA_CA_CERTS` is honored by *some* internal component but not all | terminating `mitmdump` proxy, CA installed via `security add-trusted-cert` into `login.keychain-db`; full chat/auth round-trip observed both ways |
+| `vscode-copilot` | ★ | **Electron `net`** (default) + `@github/copilot` agent-host child | ❓ | ✅ (explicit-proxy mode only — see note) | ❓ | ✅ **Confirmed 2026-10-15, by stack** | **System/login keychain: always.** `NODE_EXTRA_CA_CERTS`: **Electron's `net` never honors it; Node-based CAPI/auth calls always do** — isolated by TLS fingerprint (GREASE present ⇒ Electron ⇒ rejected; no GREASE ⇒ Node ⇒ accepted for CAPI/auth) | terminating `mitmdump` proxy + a `tls_clienthello` fingerprinting addon; CA via `security add-trusted-cert` into `login.keychain-db` for one run, env var for the other |
 
   **CA trust (confirmed) detail for `vscode-copilot`, measured 2026-10-15:**
   - **System/login keychain: fully trusted.** CA added to `login.keychain-db`
@@ -54,19 +54,42 @@ Agents in adapter-registry order (`ai-gateway/agent-manager/src/agents/mod.rs`).
     `exp.business.githubcopilot.com` call succeeded, including
     `/copilot_internal/user`, `/copilot_internal/v2/token`,
     `/copilot_internal/managed_setting…`, `/models`. Clean, unambiguous.
-  - **`NODE_EXTRA_CA_CERTS`: partial, inconsistent — not a clean yes/no.**
-    Same CA, same hosts, `NODE_EXTRA_CA_CERTS` set at process launch (no
-    keychain trust in effect for this run). Per-host result was **mixed, in
-    the same burst**: `api.github.com` 16 relayed / 15 rejected,
-    `api.business.githubcopilot.com` 8 relayed / 3 rejected,
-    `mobile.events.data.microsoft.com` 6 relayed / 10 rejected. Successful
-    calls included real CAPI traffic (`/copilot_internal/user`, `/v2/token`,
-    `/models`, `/agents`, `/embeddings/models`), so the channel is real, not
-    a fluke — but different internal components of VS Code/Copilot evidently
-    make independent TLS-trust decisions for the identical hostname. This
-    matches the `copilot` CLI row's "mixed" finding, just split differently
-    (there it's Node-vs-native-Rust; here it looks like Electron's `net`
-    vs. a Node-based path inside the extension, not yet isolated further).
+  - **`NODE_EXTRA_CA_CERTS`: not random — a deterministic split by TLS stack,
+    isolated 2026-10-15 by fingerprinting every ClientHello.** The first pass
+    (above, per-host tallies) looked like inconsistency; it wasn't. A
+    mitmproxy addon (`tls_fingerprint.py`, hooking `tls_clienthello`) logged
+    the cipher-suite list and ALPN offer for **every** connection attempt,
+    accepted or rejected, then each was correlated to its outcome by client
+    port. Two cleanly separated clusters fell out:
+    - **GREASE cipher value present** (e.g. `0xcaca`, `0xaaaa` — the
+      `0x?A?A` pattern RFC 8701 defines, which only Chromium/BoringSSL
+      emits), 16 ciphers, ALPN `h2,http/1.1`. This is **Electron's `net`**.
+      **100% of these were REJECTED** — confirmed for an actual
+      `api.github.com` connection, not just inferred from the stack name.
+    - **No GREASE value**, ALPN `http/1.1` only (or none), 18 or 22 ciphers
+      — two distinct non-GREASE signatures, i.e. **two separate Node
+      binaries** (consistent with VS Code's own embedded Node for the
+      extension host vs. the separate `@github/copilot` agent-host child's
+      own bundled Node). **Every CAPI/auth connection with either
+      Node-shaped signature was accepted** — `api.github.com` and
+      `api.business.githubcopilot.com` alike, including real
+      `/copilot_internal/user`, `/v2/token`, and `/models` calls.
+    - One wrinkle, kept rather than smoothed over: a few **non-CAPI** hosts
+      (`education.github.com`, `default.exp-tas.com`, one
+      `mobile.events.data.microsoft.com` connection) produced the *same*
+      no-GREASE, 18-cipher Node signature yet were still **rejected**. So
+      "no GREASE" identifies the stack (Node) correctly, but doesn't by
+      itself guarantee that specific call honors `NODE_EXTRA_CA_CERTS` —
+      some Node-based call sites evidently pin their own CA bundle
+      (telemetry/experimentation SDKs are the likely suspects) and ignore
+      the env var regardless of which stack they run on. The CAPI/auth
+      calls specifically did not show this behavior in this run.
+    - **Net finding**: for the traffic this feature actually cares about
+      (CAPI + auth), the split is clean and mechanistic — **Electron's `net`
+      never honors `NODE_EXTRA_CA_CERTS`; the Node-based paths (both of
+      them) do.** This is the same shape as the `copilot` CLI row's
+      Node-vs-native-Rust split, just with Electron in place of the native
+      Rust transport.
   - **Note on the SNI column**: marked ✅ only for *explicit proxy mode*
     (`http.proxy`, this test's setup) — `mitmdump` in that mode learns the
     destination from the client's `CONNECT` line, not from sniffing SNI, so

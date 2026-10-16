@@ -135,11 +135,13 @@ that, two separate questions need answering, one kernel-verified and one
 client-asserted — neither alone is enough:
 
 - **What was the original destination (IP:port)?** The kernel rewrite at
-  `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` doesn't erase this — WFP keeps a
-  redirect record keyed to the new local 4-tuple, and the listener recovers it
-  with `SIO_QUERY_WFP_CONNECTION_REDIRECT_RECORDS` on the accepted socket
-  (§4.2, step 4). This is kernel-verified ground truth; the client cannot
-  influence it.
+  `FWPM_LAYER_ALE_CONNECT_REDIRECT_V4` doesn't erase this — the driver attaches
+  it as `localRedirectContext`, and the listener recovers it with
+  `SIO_QUERY_WFP_CONNECTION_REDIRECT_CONTEXT` on the accepted socket (§4.2,
+  step 4 — **implemented** 2026-10-16, `redirect_context.rs`, untested
+  against a real redirect). This is kernel-verified ground truth; the client
+  cannot influence it. Used for audit/logging only, not for routing — see
+  that module's doc comment and the next bullet.
 - **What hostname did the client mean?** A bare IP:port doesn't give you
   `api.githubcopilot.com` as a string — one IP can front many hostnames behind
   a CDN, so IP alone doesn't tell the listener which cert CN to mint for the
@@ -221,10 +223,20 @@ classify:
 3. `FwpsAcquireWritableLayerDataPointer0` → cast to `FWPS_CONNECT_REQUEST0`,
    set `remoteAddressAndPort` → `127.0.0.1:<port>`, set `localRedirectTargetPID`
    (the listener's PID) and `localRedirectHandle` (the cached handle).
-4. The listener recovers the original destination via
-   `SIO_QUERY_WFP_CONNECTION_REDIRECT_RECORDS` and stamps
-   `SIO_SET_WFP_CONNECTION_REDIRECT_RECORDS` on its own outbound socket so WFP
-   relates the two connections (and the loop guard in step 2 fires on it).
+4. Two DIFFERENT ioctls, easy to conflate — corrected 2026-10-16, see
+   finding #9's own correction: the listener recovers the original
+   destination via `SIO_QUERY_WFP_CONNECTION_REDIRECT_CONTEXT` (not
+   `_RECORDS` — that one returns the opaque records step 2's loop guard
+   matches against, not the address). **Implemented** on the listener side
+   (`ai-gateway/listener/src/redirect_context.rs`), uncompiled/untested like
+   everything else in this prototype. **Not yet implemented**: whichever
+   outbound socket needs to close the loop guard by stamping
+   `SIO_SET_WFP_CONNECTION_REDIRECT_RECORDS` on itself — and it's not yet
+   settled which socket that is, given the listener relays through Optimus
+   rather than dialing the real destination itself (§3), so the redirect
+   filter's own `ALE_APP_ID` scope to `Code.exe` may mean no outbound leg of
+   this pipeline ever matches it again in the first place. Needs resolving
+   against a real filter on the VM, not guessed at here.
 
 This is a **new callout on a new layer in the existing driver**, not a new
 driver. It reuses the device, the sublayer, and the transaction pattern.

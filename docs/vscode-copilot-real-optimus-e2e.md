@@ -73,6 +73,41 @@ These are fixed, non-per-tenant values (`OidcParams::default()` has no
 tenant-awareness) — the same defaults every other agent identity on this
 tenant authenticates with, not something specific to this run.
 
+### Admin-approval step's own config (`admin.yaml`)
+
+The register → **approve** → activate → token-exchange pipeline's approval
+step is a separate, admin-privileged OIDC login, not the agent's own
+credential — driven by `script/approve_agent.py` in the `zax-sdk-python`
+repo, configured by `script/admin.yaml`:
+
+```yaml
+cloud: prod
+oidc:
+  issuer:           https://aibroker-engineer.zslogin.net
+  client_id:        zax.client
+  client_secret:    ""
+  audience:         oneid
+  scope:            openid
+  token_path:       /oauth2/v1/token
+  authorize_path:   /oauth2/v1/authorize
+  discovery_path:   /.well-known/openid-configuration
+  tenant_id_claim:  tenantId
+  callback:
+    host:            127.0.0.1
+    path:            /callback
+    port:            8765
+    timeout_seconds: 180
+```
+
+Same cloud, tenant, `client_id` and `audience` as the agent-side defaults
+above — the one real difference is `scope: openid` here, with no
+`offline_access`. That's deliberate: this is a one-off interactive admin
+login to call `POST .../agent-operations/{id}/transition
+{"status":"approved"}`, not a persisted identity that needs a refresh
+token the way an agent's credential does. `callback` (`127.0.0.1:8765/callback`)
+is where the admin's browser gets redirected after login — distinct from
+whatever loopback port the agent-side interactive OIDC flow binds.
+
 ## What was actually run, in order
 
 1. **Real backend registration/approval/activation**, via the `--sim-daemon`

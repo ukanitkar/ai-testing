@@ -47,6 +47,32 @@ sequenceDiagram
 | **VS Code `settings.json`** | `http.proxy` pointed at the real listener's port so VS Code's own HTTP client (and Copilot Chat's) tunnels through it | `~/Library/Application Support/Code/User/settings.json` |
 | **Optimus** (`gateway.zsagentic.ai`) | The real policy gateway — confirmed reached at the TCP level (`lsof` showing established connections to its real IPs) | EKS dev cluster, `zax-gateway` namespace |
 
+## Tenant / OIDC parameters used
+
+`--sim-daemon` was launched with `ZAX_CLOUD=prod` and
+`ZAX_TENANT="https://aibroker-engineer.zslogin.net/"`; no
+`ZAX_OIDC_CLIENT_ID` / `ZAX_OIDC_AUDIENCE` / `ZAX_OIDC_SCOPE` /
+`ZAX_OIDC_*_PATH` overrides were set, so those fields went into
+`.broker.zip` as empty strings — per `sim_daemon.rs`'s own doc, "blank means
+the SDK default" — and the SDK's hardcoded `OidcParams::default()`
+(`ai-gateway/sdk/src/authorization/oidc.rs:49-63`) is what was actually
+used:
+
+| Parameter | Value used | Source |
+|---|---|---|
+| Cloud | `prod` (`Cloud::Prod` → `zsagentic.ai`) | `ZAX_CLOUD=prod` |
+| Tenant / issuer | `https://aibroker-engineer.zslogin.net/` | `ZAX_TENANT` |
+| OIDC `client_id` | `zax.client` | SDK default (not overridden) |
+| OIDC `audience` | `oneid` | SDK default (not overridden) |
+| OIDC `scope` | `openid offline_access` | SDK default (not overridden) |
+| OIDC `authorize_path` | `/oauth2/v1/authorize` | SDK default (not overridden) |
+| OIDC `token_path` | `/oauth2/v1/token` | SDK default (not overridden) |
+| OIDC `discovery_path` | `/.well-known/openid-configuration` | SDK default (not overridden) |
+
+These are fixed, non-per-tenant values (`OidcParams::default()` has no
+tenant-awareness) — the same defaults every other agent identity on this
+tenant authenticates with, not something specific to this run.
+
 ## What was actually run, in order
 
 1. **Real backend registration/approval/activation**, via the `--sim-daemon`

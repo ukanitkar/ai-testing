@@ -1,4 +1,4 @@
-# VS Code Copilot's four account modes, and why the shipped solution doesn't care which one a customer is on
+# VS Code Copilot/ai-gateway investigation, design and implementation
 
 2026-10-23. **Two mechanisms were tried for routing VS Code Copilot Chat
 traffic through Zscaler, and we settled on the second one.** The first — the

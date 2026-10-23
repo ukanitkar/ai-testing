@@ -18,6 +18,157 @@ true`). This session shipped and live-proved a *different* mechanism
 (`LlmRouting::ForwardProxy`, `http.proxy`, full MITM via a locally-trusted
 CA) that is not. That changes the matrix's conclusion for 6 of its 8 rows.
 
+## Architecture: components and message flow
+
+```
++-------------------+
+|  ai-protect        |
+|  daemon            |
++-------------------+
+         |
+         | (1) discovers VS Code + Copilot Chat; writes .broker.zip
+         v
++-------------------+
+|  ai-gateway         |
+|  AgentManager        |
++-------------------+
+         |
+         | (2) browser OIDC login
+         v
++-------------------+
+|  OIDC Issuer         |
+|  (zslogin.net)       |
++-------------------+
+         |
+         | (3) ZAX user JWT -- back to ai-gateway
+         v
++-------------------+          +-------------------+
+|  Vector             |<---------|  Admin (human)     |
+|  (ZAX control        |  (5)    |  approves the       |
+|   plane)             |approve  |  pending agent       |
++-------------------+          +-------------------+
+         ^
+         | (4) agents:register (user JWT)
+         |
++-------------------+
+|  ai-gateway          |
+|  AgentManager         |
++-------------------+
+         |
+         | (6) status: active -> (7) Bumblebee activate +
+         |     token-exchange -> triple JWT -> Vector mcp-servers
+         v
++-------------------+
+|  ai-gateway          |
+|  Listener starts;      |
+|  writes config delta   |
++-------------------+
+         |
+         | (8) ai-protect applies the delta
+         v
++-------------------+
+|  VS Code              |
+|  settings.json         |
+|  (http.proxy,          |
+|   mcp-config)          |
++-------------------+
+         |
+         | (9) Copilot Chat extension reads http.proxy;
+         |     every outbound request goes through it
+         v
++-------------------+
+|  ai-gateway           |
+|  Listener              |
++-------------------+
+     |              |
+     | (10) bypass  | (11) MITM (local CA) + relay,
+     | (telemetry/  |      triple JWT attached
+     |  update/CDN) |
+     v              v
+  real host    +-------------------+
+  (direct,     |  Optimus            |
+   no Optimus) |  gateway.zsagentic  |
+               |  .ai                 |
+               +-------------------+
+                        |
+                        | (12) forwards
+                        v
+               +-------------------+
+               |  GitHub Copilot      |
+               |  API                   |
+               |  (*.githubcopilot.com) |
+               +-------------------+
+                        |
+                        | (13) response relayed back: GitHub ->
+                        |      Optimus -> Listener -> Copilot Chat
+                        |      extension -> VS Code's Chat panel
+                        v
+                 (shown to the user)
+```
+
+### Arrow-by-arrow detail
+
+1. **ai-protect daemon -> `.broker.zip`**: discovery (`scan_inventory` +
+   `collect_builtin_extensions`, Issue 4) recognizes VS Code and the
+   built-in Copilot Chat extension; `discovered_broker_agents()` (Issue 5)
+   now yields **both** `copilot` and `vscode-copilot` as candidates from
+   that one signal. Writes the resolved tenant config (`cloud`/`oidc` from
+   `init.yaml` or pushed settings, Issues 2/3) plus the discovered-agent
+   list to `.broker.zip`.
+2. **ai-gateway -> OIDC Issuer**: on seeing a usable tenant OIDC config,
+   `AgentManager` opens a system browser to the issuer's authorize endpoint
+   (PKCE). This is the **gateway's own** separate OIDC login — distinct
+   from ai-protect's device-plane enrollment (two separate backends; see
+   the DVM runbook above).
+3. **OIDC Issuer -> ai-gateway**: the issuer redirects back with an
+   authorization code; the SDK exchanges it for tokens. The resulting ZAX
+   user JWT feeds every backend call from here on.
+4. **ai-gateway -> Vector**: `agents:register`, once per discovered agent
+   id (here, both `copilot` and `vscode-copilot`) — since the two share the
+   same backend `agent_type`, this can resolve to one underlying
+   registration (confirmed live: one approval covered both).
+5. **Admin -> Vector**: a brand-new device/agent pair lands in
+   `pending_approval` until an admin acts. This session used
+   `zax-sdk-python/script/approve_agent.py` — a real, interactive
+   browser-based admin login — against Vector's `/vector/v1/admin/
+   agent-operations/{id}/transition`.
+6. **Vector -> ai-gateway**: the registration flips to `status: active`;
+   `AgentManager`'s periodic `agents:status` poll (observed every ~10s)
+   picks it up.
+7. **ai-gateway -> Bumblebee -> Vector**: `/activations` (user JWT + agent
+   identity -> instance JWT), then `/token-exchange` (instance JWT -> the
+   triple JWT, carrying `intersected_caps`), then back to Vector's
+   `/sdk/mcp-servers` for the MCP broker list.
+8. **ai-gateway -> ai-protect -> VS Code**: the Listener starts and a
+   config delta is computed; ai-protect's `.status.zip` watcher applies it
+   — for the `vscode-copilot` identity specifically, this writes `http.proxy`
+   directly into VS Code's own `settings.json` (Issue 5's live
+   confirmation).
+9. **VS Code -> ai-gateway Listener**: the Copilot Chat extension's
+   Electron fetcher reads `http.proxy` and routes *every* outbound HTTPS
+   connection through it — model calls, telemetry, update checks, and
+   marketplace/CDN fetches alike, with no distinction at this layer.
+10. **Listener -> real host, direct**: for a destination matching
+    `BYPASS_HOSTS` (Issue 6) — telemetry/update/CDN noise — the Listener
+    dials the real destination directly at the plaintext CONNECT stage,
+    before any MITM, and splices raw bytes. This traffic never reaches
+    Optimus (see the account-mode gap analysis above for which domains this
+    does and doesn't cover yet).
+11. **Listener -> Optimus**: for everything else, the Listener terminates
+    TLS using its locally-trusted CA, reads the plaintext request, and
+    relays it to Optimus (`gateway.zsagentic.ai`) over a fresh connection,
+    attaching the triple JWT from step 7 as the request's credential.
+12. **Optimus -> GitHub Copilot API**: Optimus forwards the request to the
+    real upstream named in it (e.g. `api.business.githubcopilot.com`) —
+    this is also the one hop where Zscaler's own policy enforcement (DLP,
+    visibility, model-use rules) actually acts, since it's the only point
+    that sees real, decrypted traffic.
+13. **GitHub Copilot API -> ... -> VS Code**: the response is relayed back
+    along the exact same path in reverse, re-encrypted toward the client at
+    the Listener, through the Copilot Chat extension, and rendered in VS
+    Code's Chat panel. This exact sequence, for a real prompt, is what
+    produced the clean response confirmed earlier in this doc.
+
 ## The four modes, restated precisely
 
 Per GitHub's own docs (see Sources) and the two existing docs above, "four

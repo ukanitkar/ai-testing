@@ -3,3 +3,8 @@
 # never meant to be committed.
 ai-gateway/scratchpad/mitm_bodies.log
 ai-gateway/scratchpad/__pycache__/
+
+# scripts/make-pdf.sh / make-pdf.ps1's own venv (markdown + xhtml2pdf) --
+# created on first run, never meant to be committed.
+scripts/.venv/
+__pycache__/

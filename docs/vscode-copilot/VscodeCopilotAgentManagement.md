@@ -1,22 +1,17 @@
 # VS Code Copilot's four account modes, and why the shipped solution doesn't care which one a customer is on
 
-2026-10-23. This builds directly on two existing docs rather than repeating
-them — read those first for the full investigation history:
-
-- **`../vscode-copilot-enterprise-gate-account-test.md`** — the live account
-  test that definitively closed the old `github-enterprise.uri`
-  discovery-hijack lever for ordinary accounts, and the two-axis framing
-  (GitHub hosting plan vs. Copilot billing tier) this doc reuses.
-- **`../vscode-copilot-licensing-matrix.pdf`** — the 8-row feasibility matrix
-  (platform × account tier) for that same old mechanism, concluding 6 of 8
-  rows needed an unbuilt network-egress kernel hook.
-
-**What's new here**: both of those docs were written against the
-`github-enterprise.uri` CAPI-discovery-hijack mechanism (`LlmRouting::
-CopilotDiscoveryRelay`), which really is account-tier-gated (`enterprise:
-true`). This session shipped and live-proved a *different* mechanism
-(`LlmRouting::ForwardProxy`, `http.proxy`, full MITM via a locally-trusted
-CA) that is not. That changes the matrix's conclusion for 6 of its 8 rows.
+2026-10-23. **Two mechanisms were tried for routing VS Code Copilot Chat
+traffic through Zscaler, and we settled on the second one.** The first — the
+older `github-enterprise.uri` CAPI-discovery hijack
+(`LlmRouting::CopilotDiscoveryRelay`) — turned out to be gated on GitHub
+account tier (`enterprise: true`) in a way that closes it for most
+customers. The second — VS Code's `http.proxy` setting, with full MITM via a
+locally-trusted CA (`LlmRouting::ForwardProxy`) — is not account-tier-gated
+at all, was shipped and live-proved this session, and is what the rest of
+this doc, and the shipped code, are built around. The full reasoning behind
+that choice, and the prior investigation it builds on, is in
+[Appendix A: the two approaches considered](#appendix-a-the-two-approaches-considered-and-why-we-settled-on-the-second)
+at the end of this doc.
 
 ## Architecture: components and message flow
 
@@ -572,7 +567,29 @@ agents/vscode-copilot/`:
   walks you through sending one real Copilot Chat message and checks the
   gateway log for it.
 
-## Appendix: full text of `vscode-copilot-enterprise-gate-account-test.md`
+## Appendix A: the two approaches considered, and why we settled on the second
+
+This builds directly on two existing docs rather than repeating them — read
+those first for the full investigation history:
+
+- **`../vscode-copilot-enterprise-gate-account-test.md`** — the live account
+  test that definitively closed the old `github-enterprise.uri`
+  discovery-hijack lever for ordinary accounts, and the two-axis framing
+  (GitHub hosting plan vs. Copilot billing tier) this doc reuses. Reproduced
+  in full as Appendix B, below.
+- **`../vscode-copilot-licensing-matrix.pdf`** — the 8-row feasibility matrix
+  (platform × account tier) for that same old mechanism, concluding 6 of 8
+  rows needed an unbuilt network-egress kernel hook.
+
+**What's new here**: both of those docs were written against the
+`github-enterprise.uri` CAPI-discovery-hijack mechanism (`LlmRouting::
+CopilotDiscoveryRelay`), which really is account-tier-gated (`enterprise:
+true`). This session shipped and live-proved a *different* mechanism
+(`LlmRouting::ForwardProxy`, `http.proxy`, full MITM via a locally-trusted
+CA) that is not. That changes the matrix's conclusion for 6 of its 8 rows —
+which is why it's the mechanism the rest of this doc is built around.
+
+## Appendix B: full text of `vscode-copilot-enterprise-gate-account-test.md`
 
 Reproduced in full below rather than just linked, since it's the live
 account-test evidence this doc's "four modes" analysis (above) leans on

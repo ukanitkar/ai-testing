@@ -20,6 +20,8 @@ globally.
 """
 from __future__ import annotations
 
+import os
+import re
 import sys
 
 import markdown
@@ -81,6 +83,21 @@ def render(src: str, dst: str) -> None:
         extensions=["tables", "fenced_code", "sane_lists", "toc"],
     )
 
+    # Markdown images use paths relative to the .md source; xhtml2pdf
+    # resolves relative src against the process cwd, not the source file,
+    # so a diagram sitting next to the doc wouldn't be found when this
+    # script is invoked from elsewhere. Rewrite each relative img src to an
+    # absolute file path based on the source's own directory.
+    src_dir = os.path.dirname(os.path.abspath(src))
+
+    def _absolutize(match: "re.Match[str]") -> str:
+        path = match.group(1)
+        if re.match(r"^([a-zA-Z]+:|/)", path):  # already absolute or a URL
+            return match.group(0)
+        return f'src="{os.path.join(src_dir, path)}"'
+
+    body_html = re.sub(r'src="([^"]+)"', _absolutize, body_html)
+
     html = (
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
         f"<style>{_CSS}</style></head><body>{body_html}"
@@ -90,7 +107,12 @@ def render(src: str, dst: str) -> None:
     )
 
     with open(dst, "wb") as out:
-        result = pisa.CreatePDF(src=html, dest=out)
+        # xhtml2pdf refuses to load a local image outside its `path` base
+        # directory (a path-traversal guard) -- without this, it defaults
+        # to the process cwd, not the source file's directory, so a
+        # diagram sitting next to the doc 404s whenever this script runs
+        # from anywhere else.
+        result = pisa.CreatePDF(src=html, dest=out, path=src_dir)
 
     if result.err:
         print(f"xhtml2pdf reported {result.err} error(s) rendering {src}", file=sys.stderr)
